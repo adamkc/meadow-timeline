@@ -20,7 +20,7 @@ every meadow in the valley going through the same change. Built toward a
 6. Closed stand: the thicket thins itself; snags, downed wood, litter
 7. Mature forest: closed canopy, open floor; wet meadow only inside the trench
 
-**Live:** <https://adamkc.github.io/meadow-timeline/> (a desktop browser with
+**Live:** <https://adamcummings.net/meadow-timeline/> (a desktop browser with
 WebGL 2; about 40 MB to load).
 
 ![The wet meadow at the start of the timeline](media/wet_meadow.jpg)
@@ -246,3 +246,10 @@ the picture without blending over time.
 - At 1600x900 an RTX 4070 laptop GPU settles at 2x resolution and about 9 ms
   a frame. Intel UHD integrated graphics settles at 0.62x and about 35 fps; the
   ground shader is most of its cost. Not tested on a phone.
+
+## Publishing
+
+The site is this repository's `main` branch served by GitHub Pages from the
+root (`.nojekyll` keeps Pages from processing it). Commit and push, and the
+live page follows within a minute or two. `shots/` (working screenshots) and
+`raw` (the downloaded models) are not in the repository.
