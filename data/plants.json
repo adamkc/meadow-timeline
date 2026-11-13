@@ -207,6 +207,18 @@
    "cover": 0.119
   },
   {
+   "name": "buttercup_0_0",
+   "kind": "buttercup",
+   "width": 0.191,
+   "height": 0.306,
+   "mean": [
+    0.1931,
+    0.2523,
+    0.0315
+   ],
+   "cover": 0.117
+  },
+  {
    "name": "shootingstar_1_0",
    "kind": "shootingstar",
    "width": 0.272,
@@ -277,18 +289,6 @@
     0.2248
    ],
    "cover": 0.08
-  },
-  {
-   "name": "sneezeweed_0_0",
-   "kind": "sneezeweed",
-   "width": 0.205,
-   "height": 0.483,
-   "mean": [
-    0.1659,
-    0.2037,
-    0.0271
-   ],
-   "cover": 0.117
   },
   {
    "name": "sneezeweed_1_0",
@@ -387,6 +387,18 @@
    "cover": 0.156
   },
   {
+   "name": "manzanita_0_0",
+   "kind": "manzanita",
+   "width": 1.397,
+   "height": 0.237,
+   "mean": [
+    0.059,
+    0.1353,
+    0.0164
+   ],
+   "cover": 0.358
+  },
+  {
    "name": "bracken_0_0",
    "kind": "bracken",
    "width": 1.876,
@@ -397,18 +409,6 @@
     0.0098
    ],
    "cover": 0.092
-  },
-  {
-   "name": "bracken_1_0",
-   "kind": "bracken",
-   "width": 1.098,
-   "height": 0.909,
-   "mean": [
-    0.0485,
-    0.1013,
-    0.0099
-   ],
-   "cover": 0.061
   },
   {
    "name": "bracken_2_0",
@@ -460,21 +460,25 @@
    15,
    2
   ],
-  "shootingstar": [
+  "buttercup": [
    17,
+   1
+  ],
+  "shootingstar": [
+   18,
    2
   ],
   "bistort": [
-   19,
+   20,
    2
   ],
   "elephantshead": [
-   21,
+   22,
    2
   ],
   "sneezeweed": [
-   23,
-   2
+   24,
+   1
   ],
   "lupine": [
    25,
@@ -492,9 +496,13 @@
    31,
    1
   ],
-  "bracken": [
+  "manzanita": [
    32,
-   3
+   1
+  ],
+  "bracken": [
+   33,
+   2
   ],
   "snowplant": [
    35,

@@ -434,108 +434,119 @@ bank_dist = np.maximum(cdist + sstep(cdist, 3.0, 12.0) * (6.0 * smooth_noise(8, 
 # wanders and gathers the way water does over a floor with no relief to speak
 # of. One routing keeps to the line of the stream; three more, over ground
 # roughened differently, give the other courses.
-# Only made near the 1 m window: at 4 m a thread is not resolvable.
+def thread_network(wet, fdist, chanm, accm, stream_sdf, edgein, cell, seed, widths):
+    """Channels across the meadows of one grid (cells of `cell` metres):
+    returns metres inside a channel's edge, like the stream fields. `widths`
+    are the half-widths of a main stream, a side stream and a rivulet."""
+    hh, ww = wet.shape
+    t_rng = np.random.default_rng(seed)                           # its own random numbers
+    cells = lambda metres: max(1, int(round(metres / cell)))
+    # Where the routes end: the stream just below a meadow, or the edge of the area worked on.
+    meadow_chan = chanm & (wet > 0.5)
+    above = ndi.maximum_filter(np.where(meadow_chan, fdist, -np.inf), 2 * cells(12) + 1)   # meadow channel upstream of here, close by
+    below = ndi.minimum_filter(np.where(meadow_chan, fdist, np.inf), 2 * cells(12) + 1)    # ... and downstream
+    sink = chanm & (wet < 0.3) & (above > fdist + 2) & ~(below < fdist - 2)
+    sink[0, :] = sink[-1, :] = sink[:, 0] = sink[:, -1] = True
+    node = np.arange(hh * ww).reshape(hh, ww)
+    # Hard going outside the wet meadow and along its very edge; easy along the stream's own line.
+    confine = (1 + 5 * (1 - sstep(wet, 0.2, 0.6))) * (1 + 1.5 * (1 - sstep(edgein, 2, 14)))
+    stream_line = np.where(stream_sdf > -1.5, 0.3, 1.0)
+
+    def routing(roughness, along_stream):
+        """For every cell, the next cell on its way to an outlet."""
+        # Uneven at every scale from a few metres to tens: a route then bends at
+        # every scale too, where over smooth ground it would run in straight lines.
+        bumps = np.zeros((hh, ww), "f4")
+        for sigma, weight in ((3, 0.45), (8, 0.45), (20, 0.35)):
+            layer = ndi.gaussian_filter(t_rng.standard_normal((hh, ww)).astype("f4"), max(0.6, sigma / cell))
+            bumps += weight * layer / layer.std()
+        ease = (np.exp(roughness * bumps) * confine * (stream_line if along_stream else 1.0)).astype("f8")
+        rows, cols, costs = [], [], []
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if not (dx or dy):
+                    continue
+                a = (slice(max(0, -dy), hh - max(0, dy)), slice(max(0, -dx), ww - max(0, dx)))   # from
+                b = (slice(max(0, dy), hh - max(0, -dy)), slice(max(0, dx), ww - max(0, -dx)))   # to
+                rows.append(node[b].ravel()); cols.append(node[a].ravel())                       # reversed: searched from the outlets
+                costs.append((np.hypot(dx, dy) * 0.5 * (ease[a] + ease[b])).ravel())
+        end = hh * ww                                                 # one node standing for every outlet
+        rows.append(np.full(int(sink.sum()), end)); cols.append(node[sink]); costs.append(np.full(int(sink.sum()), 1e-6))
+        graph = coo_matrix((np.concatenate(costs), (np.concatenate(rows), np.concatenate(cols))), shape=(end + 1, end + 1)).tocsr()
+        _, nxt = dijkstra(graph, directed=True, indices=end, return_predecessors=True)
+        return nxt
+
+    routes = [routing(0.9, True), routing(1.7, False), routing(1.7, False), routing(1.7, False)]
+    width = np.zeros((hh, ww), "f4")                                 # half-width of the widest thread through each cell
+    wet_flat = wet.ravel()
+
+    def run(start, family, half_width, upto=6000):
+        """Follow one routing from a cell to an outlet, marking the thread; returns its cells."""
+        out, v, end = [], int(start), hh * ww
+        while 0 <= v < end and len(out) < upto:
+            out.append(v)
+            v = routes[family][v]
+        if len(out) > 3:
+            # A course traced cell to cell is all right angles and diagonals: round it off.
+            ys, xs = np.divmod(np.array(out), ww)
+            ys, xs = ndi.gaussian_filter1d(ys.astype("f8"), 2.5 / cell + 0.4, mode="nearest"), ndi.gaussian_filter1d(xs.astype("f8"), 2.5 / cell + 0.4, mode="nearest")
+            t = np.arange(0, len(out) - 1 + 1e-9, 0.4)
+            yy, xx = np.rint(np.interp(t, np.arange(len(out)), ys)).astype(int), np.rint(np.interp(t, np.arange(len(out)), xs)).astype(int)
+            np.maximum.at(width, (yy, xx), half_width)
+        return out
+
+    def split(course, family, half_width, every, deeper):
+        """Channels that leave this one part-way down, each to rejoin lower."""
+        made, step = 0, int(t_rng.uniform(0.4, 1.0) * every)
+        while step < len(course) - cells(25):
+            if wet_flat[course[step]] > 0.6:
+                f = 1 + (family + made) % 3
+                branch = run(course[step], f, half_width)
+                made += 1
+                if deeper:
+                    made += split(branch[:cells(400)], f, widths[2], 2.2 * every, False)
+            step += max(1, int(t_rng.uniform(0.7, 1.3) * every))
+        return made
+
+    # Where water enters: the largest drainage crossing each stretch of the meadow's edge.
+    ring = (wet > 0.45) & (wet < 0.62)
+    entry = ring & (accm >= 8000) & (accm == ndi.maximum_filter(np.where(ring, accm, 0), 2 * cells(15) + 1))
+    n_entries = n_splits = 0
+    for v in node[entry]:
+        a = accm.ravel()[v]
+        hw = widths[0] if a >= WATER_MIN else widths[1] if a >= 20000 else widths[2]
+        main = run(v, 0, hw)
+        n_entries += 1
+        if a >= 20000:
+            for family in (1, 2):                                    # the same water by other courses
+                n_splits += split(run(v, family, widths[1]), family, widths[2], cells(70), False)
+            n_splits += split(main, 0, widths[1], cells(42), True)
+        else:
+            n_splits += split(main, 0, widths[2], cells(110), False)
+    sdf = np.full((hh, ww), -4.0, "f4")
+    for hw in sorted(set(widths)):
+        sdf = np.maximum(sdf, hw - cell * ndi.distance_transform_edt(width < hw - 0.01))
+    return sdf, n_entries, n_splits
+
+
+# Near the 1 m window, in full detail.
 tm = 80
 wr0, wr1, wc0, wc1 = max(0, r0 - tm), min(H, r0 + n + tm), max(0, c0 - tm), min(W, c0 + n + tm)
 win = (slice(wr0, wr1), slice(wc0, wc1))
-hh, ww = wr1 - wr0, wc1 - wc0
-t_rng = np.random.default_rng(41)                                # its own random numbers
-wet_w, fd_w, chan_w, acc_w = floor_wet[win], flow_dist[win], chan[win], acc_healed[win]
-# Where the routes end: the stream just below a meadow, or the edge of the area worked on.
-meadow_chan = chan_w & (wet_w > 0.5)
-above = ndi.maximum_filter(np.where(meadow_chan, fd_w, -np.inf), 25)    # meadow channel upstream of here, close by
-below = ndi.minimum_filter(np.where(meadow_chan, fd_w, np.inf), 25)     # ... and downstream
-sink = chan_w & (wet_w < 0.3) & (above > fd_w + 2) & ~(below < fd_w - 2)
-sink[0, :] = sink[-1, :] = sink[:, 0] = sink[:, -1] = True
-node = np.arange(hh * ww).reshape(hh, ww)
-# Hard going outside the wet meadow and along its very edge; easy along the stream's own line.
-confine = (1 + 5 * (1 - sstep(wet_w, 0.2, 0.6))) * (1 + 1.5 * (1 - sstep(edge_in[win], 2, 14)))
-stream_line = np.where(water["_healed"][0][win] > -1.5, 0.3, 1.0)
-
-
-def routing(roughness, along_stream):
-    """For every cell, the next cell on its way to an outlet."""
-    # Uneven at every scale from a few metres to tens: a route then bends at
-    # every scale too, where over smooth ground it would run in straight lines.
-    bumps = np.zeros((hh, ww), "f4")
-    for sigma, weight in ((3, 0.45), (8, 0.45), (20, 0.35)):
-        layer = ndi.gaussian_filter(t_rng.standard_normal((hh, ww)).astype("f4"), sigma)
-        bumps += weight * layer / layer.std()
-    ease = (np.exp(roughness * bumps) * confine * (stream_line if along_stream else 1.0)).astype("f8")
-    rows, cols, costs = [], [], []
-    for dy in (-1, 0, 1):
-        for dx in (-1, 0, 1):
-            if not (dx or dy):
-                continue
-            a = (slice(max(0, -dy), hh - max(0, dy)), slice(max(0, -dx), ww - max(0, dx)))   # from
-            b = (slice(max(0, dy), hh - max(0, -dy)), slice(max(0, dx), ww - max(0, -dx)))   # to
-            rows.append(node[b].ravel()); cols.append(node[a].ravel())                       # reversed: searched from the outlets
-            costs.append((np.hypot(dx, dy) * 0.5 * (ease[a] + ease[b])).ravel())
-    end = hh * ww                                                 # one node standing for every outlet
-    rows.append(np.full(int(sink.sum()), end)); cols.append(node[sink]); costs.append(np.full(int(sink.sum()), 1e-6))
-    graph = coo_matrix((np.concatenate(costs), (np.concatenate(rows), np.concatenate(cols))), shape=(end + 1, end + 1)).tocsr()
-    _, nxt = dijkstra(graph, directed=True, indices=end, return_predecessors=True)
-    return nxt
-
-
-routes = [routing(0.9, True), routing(1.7, False), routing(1.7, False), routing(1.7, False)]
-width = np.zeros((hh, ww), "f4")                                 # half-width of the widest thread through each cell
-wet_flat = wet_w.ravel()
-
-
-def run(start, family, half_width, upto=6000):
-    """Follow one routing from a cell to an outlet, marking the thread; returns its cells."""
-    out, v, end = [], int(start), hh * ww
-    while 0 <= v < end and len(out) < upto:
-        out.append(v)
-        v = routes[family][v]
-    if len(out) > 3:
-        # A course traced cell to cell is all right angles and diagonals: round it off.
-        ys, xs = np.divmod(np.array(out), ww)
-        ys, xs = ndi.gaussian_filter1d(ys.astype("f8"), 2.5, mode="nearest"), ndi.gaussian_filter1d(xs.astype("f8"), 2.5, mode="nearest")
-        t = np.arange(0, len(out) - 1 + 1e-9, 0.4)
-        yy, xx = np.rint(np.interp(t, np.arange(len(out)), ys)).astype(int), np.rint(np.interp(t, np.arange(len(out)), xs)).astype(int)
-        np.maximum.at(width, (yy, xx), half_width)
-    return out
-
-
-def split(course, family, half_width, every, deeper):
-    """Channels that leave this one part-way down, each to rejoin lower."""
-    made, step = 0, int(t_rng.uniform(0.4, 1.0) * every)
-    while step < len(course) - 25:
-        if wet_flat[course[step]] > 0.6:
-            f = 1 + (family + made) % 3
-            branch = run(course[step], f, half_width)
-            made += 1
-            if deeper:
-                made += split(branch[:400], f, 0.6, 2.2 * every, False)
-        step += int(t_rng.uniform(0.7, 1.3) * every)
-    return made
-
-
-# Where water enters: the largest drainage crossing each stretch of the meadow's edge.
-ring = (wet_w > 0.45) & (wet_w < 0.62)
-entry = ring & (acc_w >= 8000) & (acc_w == ndi.maximum_filter(np.where(ring, acc_w, 0), 31))
-n_entries = n_splits = 0
-for v in node[entry]:
-    a = acc_w.ravel()[v]
-    hw = 1.15 if a >= WATER_MIN else 0.85 if a >= 20000 else 0.6
-    main = run(v, 0, hw)
-    n_entries += 1
-    if hw > 0.8:
-        for family in (1, 2):                                    # the same water by other courses
-            n_splits += split(run(v, family, 0.85), family, 0.6, 70, False)
-        n_splits += split(main, 0, 0.85, 42, True)
-    else:
-        n_splits += split(main, 0, 0.6, 110, False)
-sdf_w = np.full((hh, ww), -4.0, "f4")
-for hw in (0.6, 0.85, 1.15):
-    sdf_w = np.maximum(sdf_w, hw - ndi.distance_transform_edt(width < hw - 0.01))
+sdf_w, n_entries, n_splits = thread_network(floor_wet[win], flow_dist[win], chan[win], acc_healed[win], water["_healed"][0][win], edge_in[win], 1, 41, (1.15, 0.85, 0.6))
 thread_sdf = np.full((H, W), -4.0, "f4")
 thread_sdf[win] = ndi.gaussian_filter(sdf_w, 0.9)                # rounds the stair-steps of a course traced cell to cell
 # Threads belong to the wet meadow; a side drainage fades in from under the trees at its edge.
 thread_sdf = np.clip(thread_sdf - 5.0 * (1 - sstep(floor_wet, 0.3, 0.5)), -4, 4)
 print(f"threads: {n_entries} drainages enter the window's meadows, {n_splits} channels split off them", flush=True)
+# The rest of the watershed has only 4 m data and is only ever seen from far
+# above. Its meadows get channels too, routed the same way on that grid and
+# drawn a cell wide.
+far_thread_sdf, far_entries, far_splits = thread_network(
+    blocks(floor_wet).mean(axis=(1, 3)), blocks(flow_dist).mean(axis=(1, 3)), chan4, blocks(acc_healed).max(axis=(1, 3)),
+    blocks(water["_healed"][0]).max(axis=(1, 3)), blocks(edge_in).mean(axis=(1, 3)), DF, 43, (2.2, 2.2, 2.2))
+far_thread_sdf = np.clip(far_thread_sdf - 5.0 * (1 - sstep(blocks(floor_wet).mean(axis=(1, 3)), 0.3, 0.5)), -4, 4)
+print(f"threads, coarsely, for the whole watershed: {far_entries} drainages enter its meadows, {far_splits} channels split off them", flush=True)
 
 # ---- flight path -----------------------------------------------------------------
 # Downstream all the way: from the head of the tributary through --path-via (the
@@ -973,7 +984,7 @@ save_rgb("far_site.webp", block(hold), deg45(horizon_tan(far_filled, fc, args.su
          (sky_visibility(far_filled, fc, geometric(fc, 600, 1.5)) - 0.5) / 0.5)
 save_rgb("far_cut.webp", block(fill) / 4.0, block(np.clip(edge_dist / EDGE_FADE, 0, 1)), block(np.minimum(bank_dist, 120)) / 120.0)
 save_grid16("far_arrive.bin.gz", np.rint(block(arrive) * 4095) * 16)   # 12 bits (about 0.1 m of channel); 8 would put the headcut on 4 m steps
-save_rgb("far_thread.webp", *[np.zeros((fh, fw), "f4")] * 3)   # no threads at 4 m
+save_rgb("far_thread.webp", *[0.5 + far_thread_sdf[:fh, :fw] / 8.0] * 3)
 save_water("far", block, block_max)   # the widest water in each 4 m cell, or small streams would average away
 far_q = np.rint((far_z - zmin) / zscale)
 save_grid16("far_h.bin.gz", far_q)

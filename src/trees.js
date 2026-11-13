@@ -155,7 +155,7 @@ void main() {
 }
 `;
 
-export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, farOrigin, shared, groundAt, scene, quality = 1 }) {
+export function createTrees({ buffer, life, cards, cardA, cardB, levels, farOrigin, shared, groundAt, scene, quality = 1 }) {
   const types = cards.trees, views = cards.views;
   // How much to thicken each tree's foliage; the sparser scans need more.
   const density = { fir: 1.5, pine: 1.9, sapling: 2.4, pinesapling: 2.0, snag: 2.8, willow: 1.5, deadwillow: 2.8 };
@@ -166,9 +166,12 @@ export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, f
     density[t.kind] * (t.name.includes('fir_tree_01_c') ? 1.5 : 1)));
 
   // Trees nearer than lod.x are geometry, farther than lod.y cards, and a
-  // per-pixel mix in between. With no near data everything is a card.
-  const NEAR = near ? [23 * quality, 26.5 * quality] : [-2, -1];
-  const lod = new THREE.Vector2(...NEAR);
+  // per-pixel mix in between. Until the full trees arrive (attachNear),
+  // and with ?near=0 for good, every tree is a card.
+  const NEAR = [23 * quality, 26.5 * quality];
+  const lod = new THREE.Vector2(-2, -1);
+  const hasNear = types.map(() => 0);
+  let nearTrees = null, detailNow = 1;
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, -0.5, 1, 0, 0.5, 1, 0], 3));
@@ -181,7 +184,7 @@ export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, f
       uFrame: { value: frames }, uBounds: { value: types.map((t) => new THREE.Vector4(...t.bounds)) },
       uCardA: { value: cardA }, uCardB: { value: cardB },
       uAtlasSize: { value: new THREE.Vector2(cards.cell[0] * views * cards.columns, cards.cell[1] * cards.rows) },
-      uLod: { value: lod }, uHasNear: { value: types.map((_, i) => (near?.index.trees[i] ? 1 : 0)) },
+      uLod: { value: lod }, uHasNear: { value: hasNear },
     },
     vertexShader: CARD_VS(types.length, views), fragmentShader: CARD_FS(cards.rows, cards.columns, views),
     side: THREE.DoubleSide, alphaToCoverage: true,
@@ -259,7 +262,6 @@ export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, f
     return h;
   }
 
-  const nearTrees = near && createNearTrees({ ...near, heights: types.map((t) => t.height), levels, shared, scene, lod, treeNow, now });
 
   let lastStage = null;
   return {
@@ -268,7 +270,8 @@ export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, f
     // Shrink the range of full-geometry trees on slow GPUs, smoothly down to cards only.
     setDetail(d) {
       const k = Math.min(1, Math.max(0, (d - 0.4) / 0.6));
-      if (near) lod.set(...(k > 0 ? NEAR.map((v) => v * k) : [-2, -1]));
+      detailNow = d;
+      if (nearTrees) lod.set(...(k > 0 ? NEAR.map((v) => v * k) : [-2, -1]));
     },
     // How high a camera over this point has to be to keep `clear` metres above
     // the top of every tree within 25 m, at any stage up to `until`, and a
@@ -313,6 +316,13 @@ export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, f
         }
       }
       return crowd;
+    },
+    // The full trees for close range, which are only needed on foot and so are
+    // fetched after the scene is up: from now on, trees near the camera are meshes.
+    attachNear(near) {
+      nearTrees = createNearTrees({ ...near, heights: types.map((t) => t.height), levels, shared, scene, lod, treeNow, now });
+      near.index.trees.forEach((_, i) => { hasNear[i] = 1; });
+      this.setDetail(detailNow);
     },
     update(camera, frustum) {
       const stage = shared.uStage.value;

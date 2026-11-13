@@ -45,7 +45,7 @@ bake plant_cornlily "&proc=cornlily&made=6&views=2&cw=512&ch=1024" proc
 bake plant_sedge "&proc=sedge&made=4&views=2&cw=1024&ch=640&scatter=5,0.7,0.28,0.85,1.2&variants=3" proc
 bake plant_rush "&proc=rush&made=4&views=2&cw=1024&ch=640&scatter=4,0.7,0.28,0.85,1.2&variants=2" proc
 echo "== Sierra Nevada wildflowers and understory plants, also built from scratch"
-for sp in camas shootingstar bistort elephantshead sneezeweed lupine yarrow mulesears paintbrush bracken snowplant; do
+for sp in camas buttercup shootingstar bistort elephantshead sneezeweed lupine yarrow mulesears paintbrush manzanita bracken snowplant; do
   bake plant_$sp "&proc=$sp&made=3&views=2&cw=640&ch=640" proc
 done
 

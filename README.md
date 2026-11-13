@@ -23,7 +23,7 @@ every meadow in the valley going through the same change. Built toward a
    meadow only inside the trench
 
 **Live:** <https://adamcummings.net/meadow-timeline/> (a desktop browser with
-WebGL 2; about 23 MB to load).
+WebGL 2; about 20 MB to load).
 
 ![The wet meadow at the start of the timeline](media/wet_meadow.jpg)
 
@@ -170,7 +170,9 @@ the picture without blending over time.
   uneven at random; four such routings, and branches that leave one channel to
   rejoin lower down, make the network. Their beds are sand: under water until
   the headcut passes, then dry, and taken over by plants and litter only two
-  to four stages later.
+  to four stages later. Beyond the 1 m window the same routing is done on the
+  4 m grid, so every meadow in the watershed has its channels, drawn a cell
+  wide.
 - **Channel evolution**: every incised reach (a run of channel with a terrace
   beside it; 17 in this watershed) gets a headcut, a step in the bed about 5 m
   long with white water on it, that enters at the reach's downstream end and
@@ -197,18 +199,20 @@ the picture without blending over time.
   rows of strokes from up there. Each kind has its own green, each plant strays
   a little from it, and the meadow's base colour shifts in patches at two
   scales.
-- **Wildflowers and understory** (the `FORBS` table in `grass.js`): twelve
+- **Wildflowers and understory** (the `FORBS` table in `grass.js`): fourteen
   species, each with the moisture and shade it wants, how thickly it grows and
   a drift pattern, so they come and go with the timeline. Wet meadow: common
-  camas (*Camassia quamash*), Sierra shooting star (*Primula jeffreyi*),
-  western bistort (*Bistorta bistortoides*), elephant's head (*Pedicularis
-  groenlandica*), Bigelow's sneezeweed (*Helenium bigelovii*). Moist and
-  drying ground: corn lily (*Veratrum californicum*), large-leaved lupine
-  (*Lupinus polyphyllus*), giant red paintbrush (*Castilleja miniata*), yarrow
-  (*Achillea millefolium*), woolly mule's ears (*Wyethia mollis*). Under the
-  trees: bracken fern (*Pteridium aquilinum*) and, rarely, snow plant
-  (*Sarcodes sanguinea*). The wet-meadow species persist on the floodplain
-  inside the trench.
+  camas (*Camassia quamash*), water-plantain buttercup (*Ranunculus
+  alismifolius*), Sierra shooting star (*Primula jeffreyi*), western bistort
+  (*Bistorta bistortoides*), elephant's head (*Pedicularis groenlandica*),
+  Bigelow's sneezeweed (*Helenium bigelovii*). Moist and drying ground: corn
+  lily (*Veratrum californicum*), large-leaved lupine (*Lupinus polyphyllus*),
+  giant red paintbrush (*Castilleja miniata*), yarrow (*Achillea
+  millefolium*), woolly mule's ears (*Wyethia mollis*). Under and between the
+  trees: pinemat manzanita (*Arctostaphylos nevadensis*), bracken fern
+  (*Pteridium aquilinum*) and, rarely, snow plant (*Sarcodes sanguinea*). The
+  wet-meadow species persist on the floodplain inside the trench. See "Plant
+  sources" below for what each placement rests on.
 - **Willows** (`tools/proc_plants.js`, `prep_terrain.py`): a shrub modelled in
   code and drawn as a picture from eight sides, like a distant tree. Thickets
   stand along the small channels from the start and die back as their ground
@@ -253,6 +257,41 @@ the picture without blending over time.
   pictures dissolve from one side view to the next; the outer plant ring is
   wide enough from the air that a whole meadow lies inside it.
 
+## Plant sources
+
+The species were chosen from published descriptions of Sierra Nevada meadows
+and forests; where each grows in the scene is a rule of thumb built on them.
+
+- Wet meadows: camas, bistort, water-plantain buttercup, shooting star,
+  elephant's head, corn lily, lupine and paintbrush are named for Sierra wet
+  meadows and stream banks by the
+  [National Park Service's Yosemite wildflower guide](https://www.nps.gov/yose/learn/nature/wildflowerviewing.htm)
+  and in [Wild Flowers of the Sierra](https://www.yosemite.ca.us/library/wild_flowers_of_the_sierra/meadows.html).
+- Drying: lowered groundwater lets upland plants move onto meadow surfaces
+  ([Landscape Ecology, 2023](https://link.springer.com/article/10.1007/s10980-023-01726-7));
+  dry meadows carry bluegrass with forbs such as yarrow
+  ([NRCS ecological site descriptions](https://edit.jornada.nmsu.edu/catalogs/esd/025X/R025XY004OR/model));
+  lodgepole pine is the encroaching conifer
+  ([Lubetkin, Westerling and Kueppers](https://escholarship.org/uc/item/5mz3w1wr)).
+- Woolly mule's ears grows in open ground between trees, is common in the
+  central and northern Sierra, forms solid patches after fire or clearing, and
+  is displaced as brush and trees fill in
+  ([Las Pilitas](https://www.laspilitas.com/nature-of-california/plants/wyethia-mollis);
+  an informal source).
+- Lodgepole stands have a sparse understory, with pinemat manzanita among the
+  shrubs of their openings
+  ([UC forestry notes](https://ucanr.edu/site/forest-research-and-outreach/lodgepole-pine-pinus-contorta)).
+- Bracken is among the commonest ferns of Sierra woods and also grows in open
+  meadows ([Ferns of the Sierra](https://www.yosemite.ca.us/library/ferns_of_the_sierra/pteridium.html));
+  it marks seral forest and does not last past about 200 years
+  ([Fire Effects Information System](https://www.fs.usda.gov/database/feis/plants/fern/pteaqu/all.html)),
+  which the scene does not model: its bracken stays.
+- Snow plant lives on a fungus that lives on conifer roots, so it comes up
+  only under conifers
+  ([Wikipedia](https://www.wikiwand.com/en/Sarcodes_sanguinea)).
+- Not found in a source and placed on general knowledge: Bigelow's sneezeweed
+  in moist meadow.
+
 ## Known gaps
 
 - Motion has been measured (see flicker above) but not judged by eye from
@@ -269,8 +308,9 @@ the picture without blending over time.
   metres. They are kept off ground the trench will take, since a shrub cannot
   yet fall in with its bank.
 - In the landscape view the meadows beyond the 1 m window are drawn from 4 m
-  data, with no small channels and no thickets. Plants are not drawn that far
-  out; the meadows are the ground's own colour.
+  data: their small channels are 4 m wide, they have no thickets, and where a
+  meadow straddles the window's edge its channels do not line up across it.
+  Plants are not drawn that far out; the meadows are the ground's own colour.
 - The flowers are all in bloom at once, at every stage: there are no seasons.
 - Low evening sun puts the trench's east-facing banks, and the pockets behind
   them, in hard shadow. From the air these read as dark patches on the meadow.
@@ -293,9 +333,9 @@ the picture without blending over time.
   a frame. Intel UHD integrated graphics settles at 0.62x and about 32 fps,
   with plants thinned to about 70% in the open meadow; the ground shader is
   most of its cost. Not tested on a phone.
-- The page loads about 23 MB of data before it shows anything. The full
-  meshes for close-up trees (about 4 MB of it) are only needed on foot and
-  could be fetched later.
+- The page loads about 20 MB before it shows anything, and another 4 MB (the
+  full meshes for close-up trees) once it is running; until those arrive, a
+  visitor who steps in at once sees nearby trees as flat pictures.
 
 ## Publishing
 

@@ -45,7 +45,7 @@ const loading = { asked: 0, done: 0 };
 async function get(name) {
   loading.asked++;
   const r = await fetch(DATA + name);
-  veil.textContent = `Loading the meadow… ${++loading.done} of ${Math.max(loading.asked, 58)} files`;
+  if (!loading.shown) veil.textContent = `Loading the meadow… ${++loading.done} of ${Math.max(loading.asked, 46)} files`;
   if (!r.ok) fail(`Could not load ${name} (${r.status}). Run tools/prep_terrain.py first.`);
   return r;
 }
@@ -386,25 +386,31 @@ if (params.get('trees') !== '0') {
     get('cards.json').then((r) => r.json()),
     cardTexture('cards_a.webp', THREE.SRGBColorSpace), cardTexture('cards_b.webp', THREE.NoColorSpace),
   ]);
-  // Close-range geometry is optional: without it, or with ?near=0, every tree is a card.
-  let near = null;
-  if (params.get('near') !== '0') {
-    const index = await fetch(DATA + 'near_trees.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    if (index) {
-      const colour = async (name) => {
-        const t = await cardTexture(name, THREE.SRGBColorSpace);
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        return t;
-      };
-      const atlases = [...new Set(index.trees.map((t) => t.atlas))];
-      const [buffer, woodTextures, sprigs] = await Promise.all([
-        unpacked('near_trees.bin.gz'),
-        Promise.all(index.wood.map(colour)), Promise.all(atlases.map(colour)),
-      ]);
-      near = { index, buffer, woodTextures, sprigTextures: Object.fromEntries(atlases.map((a, i) => [a, sprigs[i]])) };
-    }
-  }
-  trees = createTrees({ buffer: treeBuffer, life: meta.trees, cards, cardA, cardB, near, levels: [core, far], farOrigin, shared, groundAt: rootedAt, scene, quality });
+  trees = createTrees({ buffer: treeBuffer, life: meta.trees, cards, cardA, cardB, levels: [core, far], farOrigin, shared, groundAt: rootedAt, scene, quality });
+}
+// The full trees for close range (trunks, branches, sprigs: about 4 MB) are only
+// needed on foot, so they are fetched once the scene is running. Until they
+// arrive, and with ?near=0 for good, every tree is a card. A fixed frame (?u=)
+// waits for them, so that screenshots do not depend on timing.
+async function loadNearTrees() {
+  const index = await fetch(DATA + 'near_trees.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!index) return;
+  const colour = async (name) => {
+    const t = await cardTexture(name, THREE.SRGBColorSpace);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+  };
+  const atlases = [...new Set(index.trees.map((t) => t.atlas))];
+  const [buffer, woodTextures, sprigs] = await Promise.all([
+    unpacked('near_trees.bin.gz'),
+    Promise.all(index.wood.map(colour)), Promise.all(atlases.map(colour)),
+  ]);
+  trees.attachNear({ index, buffer, woodTextures, sprigTextures: Object.fromEntries(atlases.map((a, i) => [a, sprigs[i]])) });
+}
+if (trees && params.get('near') !== '0') {
+  const wait = params.has('u') || params.has('walk'); // a still, or starting on foot among the trees
+  const loaded = loadNearTrees().catch((e) => console.warn('The close-range trees did not load; trees stay as pictures.', e));
+  if (wait) await loaded;
 }
 let grass = null;
 if (params.get('grass') !== '0') {
@@ -879,6 +885,6 @@ function draw(now) {
       + ` · ${scale.toFixed(2)}x resolution (${renderer.domElement.width} x ${renderer.domElement.height} shown)` + ` · plants ${Math.round(detailShown * 100)}%`;
   }
   window.__meadow.frames = ++frames;
-  if (frames === 2) { veil.textContent = ''; veil.style.opacity = 0; document.body.dataset.ready = '1'; }
+  if (frames === 2) { loading.shown = true; veil.textContent = ''; veil.style.opacity = 0; document.body.dataset.ready = '1'; }
 }
 requestAnimationFrame(frame);

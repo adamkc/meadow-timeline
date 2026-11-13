@@ -562,7 +562,56 @@ function snowPlant(rnd) {
   return [b];
 }
 
-const FORBS = { camas, shootingstar: shootingStar, bistort, elephantshead: elephantsHead, sneezeweed, lupine, yarrow, mulesears: mulesEars, paintbrush, bracken, snowplant: snowPlant };
+// Water-plantain buttercup (Ranunculus alismifolius): lance-shaped leaves and
+// glossy yellow flowers on short stems, early, where the meadow is wettest.
+function buttercup(rnd) {
+  const b = new Builder();
+  const stems = 3 + Math.floor(rnd() * 4);
+  for (let i = 0; i < 6 + rnd() * 4; i++) {
+    const hd = rnd() * 6.28, stalk = arc([(rnd() - 0.5) * 0.08, 0, (rnd() - 0.5) * 0.08], hd, 0.4 + 0.4 * rnd(), 0.3, 0.05 + 0.05 * rnd(), 3);
+    strand(b, stalk, () => 0.0014, () => [0.34, 0.5, 0.2], 3);
+    leaf(b, stalk[3], hd, 0.6 + 0.4 * rnd(), 0.5, 0.07 + 0.05 * rnd(), 0.011, mixc([0.22, 0.44, 0.13], [0.32, 0.52, 0.18], rnd()), 0.45);
+  }
+  for (let s = 0; s < stems; s++) {
+    const foot = [(rnd() - 0.5) * 0.1, 0, (rnd() - 0.5) * 0.1], h = 0.16 + 0.2 * rnd(), hd = rnd() * 6.28;
+    const stem = arc(foot, hd, 0.1 + 0.3 * rnd(), 0.1, h, 6);
+    strand(b, stem, (t) => 0.002 * (1 - 0.4 * t), () => [0.36, 0.5, 0.22], 4);
+    leaf(b, along(stem, 0.45), hd + 2.5, 0.6, 0.4, 0.04, 0.005, [0.28, 0.48, 0.16]);
+    const up = norm(add(add(stem[6], stem[5], -1), [0, 1, 0], 0.03));
+    const yellow = mixc([0.98, 0.82, 0.05], [1.0, 0.9, 0.2], rnd());
+    floret(b, stem[6], up, 5 + Math.floor(rnd() * 3), 0.011, 0.0078, (t) => mixc([0.9, 0.7, 0.05], yellow, t), 0.45, rnd());
+    knob(b, stem[6], up, 0.005, 0.0032, [0.6, 0.7, 0.15], 5);
+  }
+  return [b];
+}
+
+// Pinemat manzanita (Arctostaphylos nevadensis): a mat a hand high and a pace
+// or two across, of red-brown stems creeping over the ground and small,
+// leathery, bright green leaves held upright. Openings in the pine forest.
+function manzanita(rnd) {
+  const b = new Builder();
+  const arms = 9 + Math.floor(rnd() * 5);
+  for (let a = 0; a < arms; a++) {
+    const hd = a * 2.4 + rnd() * 0.6, reach = 0.45 + 0.5 * rnd();
+    const arm = arc([0, 0.015, 0], hd, 1.45 + 0.08 * rnd(), 0.06 * (rnd() - 0.5), reach, 9, 1);
+    arm.forEach((q, i) => { q[0] += 0.06 * Math.sin(i * 1.3 + a) * i / 9; q[2] += 0.06 * Math.cos(i * 1.7 + a) * i / 9; q[1] = Math.max(q[1], 0.012); });
+    strand(b, arm, (t) => 0.007 * (1 - 0.6 * t), () => mixc([0.42, 0.16, 0.1], [0.5, 0.22, 0.12], rnd()), 5);
+    for (let k = 0; k < 16; k++) {
+      const at = along(arm, 0.15 + 0.85 * (k + rnd()) / 16), th = rnd() * 6.28;
+      const twig = arc(at, th, 0.25 + 0.6 * rnd(), 0.3 * (rnd() - 0.5), 0.07 + 0.09 * rnd(), 4);
+      strand(b, twig, (t) => 0.0022 * (1 - 0.5 * t), () => [0.46, 0.2, 0.12], 3);
+      const green = mixc([0.18, 0.4, 0.1], [0.3, 0.5, 0.14], rnd());
+      for (let j = 0; j < 9; j++) {
+        const lt = 0.2 + 0.8 * j / 9;
+        leaf(b, along(twig, lt), th + j * 2.4, 0.35 + 0.4 * rnd(), 0.15, 0.018 + 0.008 * rnd(), 0.0085, green, 0.5, 3);
+      }
+      if (rnd() < 0.25) knob(b, add(twig[4], [0, -1, 0], 0.006), [0, 1, 0], 0.007, 0.004, [0.95, 0.82, 0.84], 4);   // a few pink-white urn flowers
+    }
+  }
+  return [b];
+}
+
+const FORBS = { buttercup, manzanita, camas, shootingstar: shootingStar, bistort, elephantshead: elephantsHead, sneezeweed, lupine, yarrow, mulesears: mulesEars, paintbrush, bracken, snowplant: snowPlant };
 
 // A leaf texture: white, so the vertex colours carry everything.
 function white() {

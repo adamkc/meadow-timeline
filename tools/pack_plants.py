@@ -31,15 +31,17 @@ SOURCES = [
     ("plant_cornlily", "lily", 1.0, [(0, 0), (1, 1), (3, 0), (2, 0)]),   # three leafy stems and one in flower
     # Sierra Nevada wildflowers, in the order of the species table in src/grass.js.
     ("plant_camas", "camas", 1.0, [(0, 0), (1, 0)]),
+    ("plant_buttercup", "buttercup", 1.0, [(0, 0)]),
     ("plant_shootingstar", "shootingstar", 1.0, [(1, 0), (2, 0)]),
     ("plant_bistort", "bistort", 1.0, [(0, 0), (1, 0)]),
     ("plant_elephantshead", "elephantshead", 1.0, [(0, 0), (2, 0)]),
-    ("plant_sneezeweed", "sneezeweed", 1.0, [(0, 0), (1, 0)]),
+    ("plant_sneezeweed", "sneezeweed", 1.0, [(1, 0)]),
     ("plant_lupine", "lupine", 1.0, [(0, 0), (1, 0)]),
     ("plant_yarrow", "yarrow", 1.0, [(0, 0), (1, 0)]),
     ("plant_mulesears", "mulesears", 1.0, [(0, 0), (1, 0)]),
     ("plant_paintbrush", "paintbrush", 1.0, [(0, 0)]),
-    ("plant_bracken", "bracken", 1.0, [(0, 0), (1, 0), (2, 0)]),
+    ("plant_manzanita", "manzanita", 1.0, [(0, 0)]),
+    ("plant_bracken", "bracken", 1.0, [(0, 0), (2, 0)]),
     ("plant_snowplant", "snowplant", 1.0, [(0, 0)]),
 ]
 

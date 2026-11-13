@@ -28,7 +28,8 @@ const SWARD = { lush: [1.12, 1.1, 0.78], dry: [1.12, 1.0, 0.8], sedge: [0.9, 1.0
 //   flower, leaf   its colours as seen from the air; clump: its picture from above (rosettes.js) and that picture's width in metres
 // Wet meadow first, then the plants of moist and drying ground, then the forest floor.
 const FORBS = [
-  { kind: 'camas',         wet: [0.72, 2], shade: [-1, 0.35], perM2: 1.6,  drift: [0, 1, 0.6],   flower: [0.2, 0.19, 0.78],   leaf: [0.1, 0.2, 0.06],   clump: [8, 1.2] },
+  { kind: 'camas',         wet: [0.72, 2], shade: [-1, 0.35], perM2: 1.6,  drift: [0, 1, 0.6],   flower: [0.1, 0.09, 0.55],   leaf: [0.1, 0.2, 0.06],   clump: [8, 1.2] },
+  { kind: 'buttercup',     wet: [0.8, 2],  shade: [-1, 0.35], perM2: 1.2,  drift: [2, -1, 0.6],  flower: [0.85, 0.68, 0.05],  leaf: [0.1, 0.22, 0.06],  clump: [8, 0.8] },
   { kind: 'shootingstar',  wet: [0.66, 2], shade: [-1, 0.4],  perM2: 1.0,  drift: [1, 1, 0.62],  flower: [0.6, 0.07, 0.3],    leaf: [0.11, 0.21, 0.06], clump: [8, 0.9] },
   { kind: 'bistort',       wet: [0.55, 0.97], shade: [-1, 0.4], perM2: 0.9, drift: [0, -1, 0.62], flower: [0.52, 0.5, 0.47],  leaf: [0.1, 0.2, 0.06],   clump: [8, 1.0] },
   { kind: 'elephantshead', wet: [0.78, 2], shade: [-1, 0.3],  perM2: 0.6,  drift: [3, -1, 0.63], flower: [0.6, 0.16, 0.38],   leaf: [0.09, 0.17, 0.06], clump: [8, 0.8] },
@@ -38,7 +39,8 @@ const FORBS = [
   { kind: 'paintbrush',    wet: [0.3, 0.7], shade: [-1, 0.5], perM2: 0.35, drift: [2, -1, 0.62], flower: [0.75, 0.08, 0.02],  leaf: [0.1, 0.17, 0.06],  clump: [8, 0.8] },
   { kind: 'yarrow',        wet: [0.06, 0.45], shade: [-1, 0.45], perM2: 0.9, drift: [0, 1, 0.56], flower: [0.5, 0.49, 0.42],  leaf: [0.13, 0.19, 0.11], clump: [12, 1.0] },
   { kind: 'mulesears',     wet: [-1, 0.3], shade: [-1, 0.4],  perM2: 0.4,  drift: [1, -1, 0.57], flower: [0.85, 0.52, 0.03],  leaf: [0.2, 0.26, 0.16],  clump: [10, 1.3] },
-  { kind: 'bracken',       wet: [0.02, 0.6], shade: [0.3, 2], perM2: 0.7,  drift: [2, 1, 0.5],   flower: [0, 0, 0],           leaf: [0.09, 0.22, 0.04], clump: [11, 2.2], shadeTolerant: true },
+  { kind: 'manzanita',     wet: [-1, 0.35], shade: [0.2, 0.8], perM2: 0.1,  drift: [0, -1, 0.55], flower: [0, 0, 0],           leaf: [0.1, 0.22, 0.07],  clump: [7, 1.7], shadeTolerant: true },
+  { kind: 'bracken',       wet: [0.02, 0.6], shade: [0.2, 2], perM2: 0.7,  drift: [2, 1, 0.5],   flower: [0, 0, 0],           leaf: [0.09, 0.22, 0.04], clump: [11, 2.2], shadeTolerant: true },
   { kind: 'snowplant',     wet: [-1, 0.4], shade: [0.55, 2],  perM2: 0.012, drift: [3, -1, 0.45], flower: [0.6, 0.02, 0.02], leaf: [0.5, 0.03, 0.03],  clump: [13, 0.35], shadeTolerant: true },
 ];
 const KINDS = [...Object.keys(SWARD), ...FORBS.map((f) => f.kind)];
