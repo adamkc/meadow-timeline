@@ -1,0 +1,1 @@
+{"posRange": 3.0, "vertexBytes": 14, "models": [{"name": "dead_tree_trunk", "texture": "log_0.webp", "vertices": [0, 1476], "triangles": [20664, 2505], "halfLength": 1.517, "radius": 0.108}, {"name": "dead_tree_trunk_02", "texture": "log_1.webp", "vertices": [35696, 2145], "triangles": [65728, 2755], "halfLength": 2.012, "radius": 0.287}]}

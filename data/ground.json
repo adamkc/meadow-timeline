@@ -1,0 +1,32 @@
+{
+ "litter": {
+  "file": "ground_litter.webp",
+  "size": 2.0,
+  "mean": [
+   0.3492,
+   0.2274,
+   0.1411
+  ],
+  "source": "forrest_ground_03"
+ },
+ "rocks": {
+  "file": "ground_rocks.webp",
+  "size": 2.9,
+  "mean": [
+   0.197,
+   0.1562,
+   0.1101
+  ],
+  "source": "river_small_rocks"
+ },
+ "dirt": {
+  "file": "ground_dirt.webp",
+  "size": 2.07,
+  "mean": [
+   0.4735,
+   0.2635,
+   0.1291
+  ],
+  "source": "dirt_floor"
+ }
+}

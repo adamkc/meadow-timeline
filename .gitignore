@@ -1,0 +1,4 @@
+# the downloaded models (a symlink into ~/.cache) and working screenshots
+raw
+shots/
+__pycache__/

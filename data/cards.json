@@ -1,0 +1,292 @@
+{
+ "views": 8,
+ "columns": 2,
+ "rows": 10,
+ "cell": [
+  256,
+  512
+ ],
+ "trees": [
+  {
+   "name": "fir_tree_01_a_LOD0",
+   "kind": "fir",
+   "height": 18.816,
+   "frameWidth": 7.332,
+   "frameHeight": 20.164,
+   "frameBottom": -0.647,
+   "bounds": [
+    0.0117,
+    0.9844,
+    0.0254,
+    0.9688
+   ]
+  },
+  {
+   "name": "fir_tree_01_b_LOD0",
+   "kind": "fir",
+   "height": 13.948,
+   "frameWidth": 6.679,
+   "frameHeight": 18.367,
+   "frameBottom": -0.508,
+   "bounds": [
+    0.0117,
+    0.9883,
+    0.0215,
+    0.791
+   ]
+  },
+  {
+   "name": "fir_tree_01_c_LOD0",
+   "kind": "fir",
+   "height": 14.4,
+   "frameWidth": 7.375,
+   "frameHeight": 20.28,
+   "frameBottom": -0.528,
+   "bounds": [
+    0.0117,
+    0.9883,
+    0.0195,
+    0.7402
+   ]
+  },
+  {
+   "name": "pine_tree_01_a_LOD0",
+   "kind": "pine",
+   "height": 20.293,
+   "frameWidth": 9.673,
+   "frameHeight": 26.602,
+   "frameBottom": -0.691,
+   "bounds": [
+    0.0312,
+    0.9648,
+    0.0215,
+    0.791
+   ]
+  },
+  {
+   "name": "pine_tree_01_b_LOD0",
+   "kind": "pine",
+   "height": 14.791,
+   "frameWidth": 8.453,
+   "frameHeight": 23.245,
+   "frameBottom": -0.533,
+   "bounds": [
+    0.0156,
+    0.9844,
+    0.0156,
+    0.6621
+   ]
+  },
+  {
+   "name": "pine_tree_01_c_LOD0",
+   "kind": "pine",
+   "height": 17.437,
+   "frameWidth": 9.055,
+   "frameHeight": 24.9,
+   "frameBottom": -0.62,
+   "bounds": [
+    0.0195,
+    0.9805,
+    0.0176,
+    0.7285
+   ]
+  },
+  {
+   "name": "fir_sapling_medium_a_LOD0",
+   "kind": "sapling",
+   "height": 8.737,
+   "frameWidth": 6.152,
+   "frameHeight": 16.918,
+   "frameBottom": -0.352,
+   "bounds": [
+    0.0312,
+    0.9688,
+    0.0137,
+    0.5391
+   ]
+  },
+  {
+   "name": "fir_sapling_medium_b_LOD0",
+   "kind": "sapling",
+   "height": 7.675,
+   "frameWidth": 4.994,
+   "frameHeight": 13.734,
+   "frameBottom": -0.343,
+   "bounds": [
+    0.0156,
+    0.9844,
+    0.0137,
+    0.5859
+   ]
+  },
+  {
+   "name": "fir_sapling_medium_c_LOD0",
+   "kind": "sapling",
+   "height": 5.752,
+   "frameWidth": 5.035,
+   "frameHeight": 13.846,
+   "frameBottom": -0.319,
+   "bounds": [
+    0.0234,
+    0.9766,
+    0.0098,
+    0.4414
+   ]
+  },
+  {
+   "name": "pine_sapling_medium_a_LOD0",
+   "kind": "pinesapling",
+   "height": 11.286,
+   "frameWidth": 5.703,
+   "frameHeight": 15.682,
+   "frameBottom": -0.546,
+   "bounds": [
+    0.0234,
+    0.9805,
+    0.0195,
+    0.7559
+   ]
+  },
+  {
+   "name": "pine_sapling_medium_b_LOD0",
+   "kind": "pinesapling",
+   "height": 8.905,
+   "frameWidth": 6.072,
+   "frameHeight": 16.698,
+   "frameBottom": -0.479,
+   "bounds": [
+    0.0312,
+    0.9727,
+    0.0137,
+    0.5645
+   ]
+  },
+  {
+   "name": "pine_sapling_medium_c_LOD0",
+   "kind": "pinesapling",
+   "height": 6.799,
+   "frameWidth": 4.134,
+   "frameHeight": 11.368,
+   "frameBottom": -0.418,
+   "bounds": [
+    0.0156,
+    0.9844,
+    0.0156,
+    0.6367
+   ]
+  },
+  {
+   "name": "pine_tree_01_a_LOD0",
+   "kind": "snag",
+   "height": 19.716,
+   "frameWidth": 8.368,
+   "frameHeight": 23.013,
+   "frameBottom": -0.674,
+   "bounds": [
+    0.0,
+    1.0,
+    0.0234,
+    0.8965
+   ]
+  },
+  {
+   "name": "pine_sapling_medium_a_LOD0",
+   "kind": "snag",
+   "height": 10.683,
+   "frameWidth": 4.353,
+   "frameHeight": 11.97,
+   "frameBottom": -0.527,
+   "bounds": [
+    0.0,
+    1.0,
+    0.0254,
+    0.9668
+   ]
+  },
+  {
+   "name": "pine_sapling_medium_c_LOD0",
+   "kind": "snag",
+   "height": 6.282,
+   "frameWidth": 3.072,
+   "frameHeight": 8.449,
+   "frameBottom": -0.403,
+   "bounds": [
+    0.0195,
+    0.9805,
+    0.0215,
+    0.8086
+   ]
+  },
+  {
+   "name": "fir_sapling_medium_a_LOD0",
+   "kind": "snag",
+   "height": 8.232,
+   "frameWidth": 3.989,
+   "frameHeight": 10.969,
+   "frameBottom": -0.337,
+   "bounds": [
+    0.0,
+    1.0,
+    0.0215,
+    0.7871
+   ]
+  },
+  {
+   "name": "willow_0",
+   "kind": "willow",
+   "height": 4.603,
+   "frameWidth": 6.151,
+   "frameHeight": 16.916,
+   "frameBottom": -0.154,
+   "bounds": [
+    0.0234,
+    0.9766,
+    0.0059,
+    0.2832
+   ]
+  },
+  {
+   "name": "willow_1",
+   "kind": "willow",
+   "height": 3.521,
+   "frameWidth": 5.276,
+   "frameHeight": 14.51,
+   "frameBottom": -0.126,
+   "bounds": [
+    0.043,
+    0.957,
+    0.0059,
+    0.2539
+   ]
+  },
+  {
+   "name": "willow_0",
+   "kind": "deadwillow",
+   "height": 4.549,
+   "frameWidth": 6.016,
+   "frameHeight": 16.545,
+   "frameBottom": -0.152,
+   "bounds": [
+    0.0195,
+    0.9805,
+    0.0059,
+    0.2871
+   ]
+  },
+  {
+   "name": "willow_1",
+   "kind": "deadwillow",
+   "height": 3.5,
+   "frameWidth": 5.063,
+   "frameHeight": 13.924,
+   "frameBottom": -0.126,
+   "bounds": [
+    0.0352,
+    0.9648,
+    0.0059,
+    0.2637
+   ]
+  }
+ ],
+ "source": "Poly Haven (CC0): fir_tree_01, pine_tree_01, fir_sapling_medium, pine_sapling_medium; willow built in tools/proc_plants.js"
+}
