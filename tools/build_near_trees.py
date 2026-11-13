@@ -365,9 +365,12 @@ def main():
         source = next(e for e in index if e["name"] == t["name"])
         index.append(dict(source, cards=[0, 0], snag=True))
 
-    open(f"{OUT}/near_trees.bin", "wb").write(blob)
+    import gzip
+    open(f"{OUT}/near_trees.bin.gz", "wb").write(gzip.compress(bytes(blob), 9, mtime=0))   # unpacked by the page (main.js)
+    if os.path.exists(f"{OUT}/near_trees.bin"):
+        os.remove(f"{OUT}/near_trees.bin")
     json.dump(dict(posRange=POS_RANGE, uvScale=2048, wood=textures, trees=index), open(f"{OUT}/near_trees.json", "w"))
-    for name in ["near_trees.bin"] + textures + sorted(set(atlases.values())):
+    for name in ["near_trees.bin.gz"] + textures + sorted(set(atlases.values())):
         print(f"{name:22s} {os.path.getsize(f'{OUT}/{name}') / 1e6:6.2f} MB")
 
 

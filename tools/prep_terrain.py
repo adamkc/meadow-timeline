@@ -22,30 +22,33 @@ What is measured and what is reconstructed:
                  rules of thumb, not data.
 
 Two levels are written to data/: core (1 m, a square window) and far (4 m, the
-whole DEM). Each gets
-  *_h.bin, *_h_healed.bin   heights, uint16 centimetres above meta.zmin
-  *_cut.png      R = depth of fill that restores the pre-incision surface
-                 (0..4 m, over the healed heights), G = when the headcut
-                 reaches this spot (0 at the downstream end .. 1 upstream),
-                 B = distance from the channel's centre line (0..120 m)
-  *_thread.png   the meadow's small channels before the capture: distance
-                 inside a thread's edge (0.5 = the edge, +-4 m). Core only.
-  *_bake.png     R = horizon angle toward the sun over bare ground (0..45 deg),
+whole DEM). The .webp layers are lossless; the .gz files are unpacked by the
+page. Each level gets
+  *_h.bin.gz, *_dh.bin.gz   heights (uint16, in units of meta.zscale above meta.zmin) and the road-healed surface's difference from them
+  *_cut.webp      R = depth of fill that restores the pre-incision surface
+                 (0..4 m, over the healed heights), G = how far inside the
+                 edge of the data (0 at the edge .. 1 well inside),
+                 B = distance from the channel's centre line, made ragged (0..120 m)
+  *_arrive.bin.gz  when the headcut reaches each spot (uint16: 0 at the
+                 downstream end of its reach .. 65520)
+  *_thread.webp   the meadow's small channels before the headcut: distance
+                 inside a channel's edge (0.5 = the edge, +-4 m). Core only.
+  *_bake.webp     R = horizon angle toward the sun over bare ground (0..45 deg),
                  G = sky visibility, B = ground that stays wet after incision
                  (the inset floodplain beside the stream)
-  *_aux.png      R = road, G = valid data, B = wet meadow before incision
-  *_site.png     R = the order in which the meadow dries after incision: 0 at
+  *_aux.webp      R = road, G = valid data, B = wet meadow before incision
+  *_site.webp     R = the order in which the meadow dries after incision: 0 at
                  its edges, 0.8 beside the channel; 1 = never (no incision),
                  G, B = sun horizon and sky visibility over the filled surface
   *_stage_lit.webp, *_stage_cover.webp
                  sunlight reaching the ground past the trees, and canopy cover,
                  at key stages (meta.stages.keys), stacked top to bottom
-  *_water.png, *_water_healed.png
+  *_water.webp, *_water_healed.webp
                  stream water for the surveyed and the road-healed terrain:
                  R = distance inside the water's edge (0.5 = the edge, +-4 m),
                  G, B = flow direction (east, south) scaled by speed
 
-trees.bin holds every tree with its life: when it germinates, how tall it can
+trees.bin.gz holds every tree and willow with its life: when it germinates, how tall it can
 grow, when (if ever) it dies. log_places.bin holds downed logs and when each
 appears. The scene, this script and the shaders share one growth rule (GROW_*).
 
@@ -53,6 +56,7 @@ Run with the system Python (needs numpy, scipy, Pillow and the gdal CLI):
   /usr/bin/python3 tools/prep_terrain.py
 """
 import argparse
+import gzip
 import json
 import os
 import subprocess
@@ -62,6 +66,8 @@ from collections import deque
 import numpy as np
 from PIL import Image
 from scipy import ndimage as ndi
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import dijkstra
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
@@ -92,10 +98,11 @@ tmp = tempfile.mkdtemp(prefix="meadow_prep_")
 # The timeline, in stage units.
 STAGE_KEYS = [2, 3, 4, 5, 6]     # stages at which tree shade is baked (0..2 have no meadow trees yet)
 CUT_START, CUT_SPAN = 0.35, 0.95  # the headcuts set off, and have worked their way up every reach this many stages later
+EDGE_FADE = 220.0                # metres over which the scene fades into haze at the edge of the data (the watershed boundary)
 HEADCUT_SPEED = 450.0            # metres of channel a headcut climbs per stage (faster on reaches too long to finish in time)
-HEADCUT_FACE = 9.0               # metres of channel over which the bed drops at a headcut
+HEADCUT_FACE = 5.0               # metres of channel over which the bed drops at a headcut
 CUT_TIME = HEADCUT_FACE / HEADCUT_SPEED  # so a spot cuts to full depth in this many stages
-WIDEN_TIME, SLOT = 1.3, 2.2      # then the banks retreat for this long, from a slot this many metres either side of the centre line
+WIDEN_TIME, SLOT = 2.2, 3.5      # then the banks retreat for this long (slowly at first), from a gully this many metres either side of the centre line
 DRY_SPAN, DRY_WIDTH = 1.8, 0.9   # the drying front takes DRY_SPAN stages to cross from the meadow's edge to the channel; a spot takes DRY_WIDTH to dry
 GROW_SPAN, GROW_POW = 3.0, 1.3   # a tree reaches full height GROW_SPAN stages after it germinates
 SWITCH_H = 9.5                   # below this a tree is drawn as a sapling, above as a mature tree
@@ -166,7 +173,24 @@ def to8(a):
 
 
 def save_rgb(name, r, g, b):
-    Image.fromarray(np.dstack([to8(r), to8(g), to8(b)])).save(os.path.join(OUT, name), optimize=True)
+    """Three 8-bit layers as a lossless WebP: exact, and smaller than a PNG."""
+    Image.fromarray(np.dstack([to8(r), to8(g), to8(b)])).save(os.path.join(OUT, name), lossless=True, quality=100, method=6)
+
+
+def save_gz(name, data):
+    """Gzipped here, so the size does not depend on what the web host
+    compresses; the page unpacks it (main.js, unpacked)."""
+    with open(os.path.join(OUT, name), "wb") as f:
+        f.write(gzip.compress(data.tobytes() if hasattr(data, "tobytes") else data, 9, mtime=0))
+
+
+def save_grid16(name, a):
+    """A 16-bit grid, stored as the difference of each sample from the one to
+    its left (wrapping): smooth data then compresses several times better."""
+    a = np.ascontiguousarray(a, "<u2")
+    d = a.copy()
+    d[:, 1:] -= a[:, :-1]
+    save_gz(name, d)
 
 
 # ---- load --------------------------------------------------------------
@@ -232,9 +256,9 @@ acc_healed = np.where(np.isfinite(acc_healed) & (acc_healed > 0), acc_healed, 0)
 water = {"": water_fields(acc), "_healed": water_fields(acc_healed)}
 
 
-def save_water(level, pick):
+def save_water(level, pick, pick_sdf=None):
     for suffix, (sdf, fx, fy, _) in water.items():
-        save_rgb(f"{level}_water{suffix}.png", 0.5 + pick(sdf) / 8.0, 0.5 + 0.5 * pick(fx), 0.5 + 0.5 * pick(fy))
+        save_rgb(f"{level}_water{suffix}.webp", 0.5 + (pick_sdf or pick)(sdf) / 8.0, 0.5 + 0.5 * pick(fx), 0.5 + 0.5 * pick(fy))
 
 
 # ---- shared helpers ---------------------------------------------------------
@@ -272,7 +296,43 @@ cdist, cind = ndi.distance_transform_edt(~chan, return_indices=True)
 cnear = (cind[0], cind[1])
 zh = (healed - zmin).astype("f4")
 bed = np.where(chan, ndi.gaussian_filter(zh * chan, 6) / np.maximum(ndi.gaussian_filter(chan.astype("f4"), 6), 1e-9), 0)
-rel = zh - bed[cnear]                                           # height above the nearest channel bed
+# Which channel each cell belongs to: not the nearest as the crow flies, but
+# the one its water runs to (so heights are "above nearest drainage"). The
+# nearest channel can be over a rise, at quite another level, and measuring
+# from it gave the meadows straight seams where one channel's territory met
+# another's. Found on a 4 m grid by searching outward from every channel cell,
+# climbing freely and paying heavily for each metre of descent: the other way
+# round, that is water refusing to run uphill.
+DF = 4
+dh, dw = H // DF, W // DF
+blocks = lambda a: a[:dh * DF, :dw * DF].reshape(dh, DF, dw, DF)
+z4 = np.where(blocks(valid).any(axis=(1, 3)), blocks(np.where(valid, zh, 0)).sum(axis=(1, 3)) / np.maximum(blocks(valid).sum(axis=(1, 3)), 1), 0).astype("f8")
+ok4 = blocks(valid).any(axis=(1, 3))
+chan4 = blocks(chan).any(axis=(1, 3))
+n4 = np.arange(dh * dw).reshape(dh, dw)
+rows, cols, costs = [], [], []
+for dy in (-1, 0, 1):
+    for dx in (-1, 0, 1):
+        if not (dx or dy):
+            continue
+        a = (slice(max(0, -dy), dh - max(0, dy)), slice(max(0, -dx), dw - max(0, dx)))   # nearer the channel
+        b = (slice(max(0, dy), dh - max(0, -dy)), slice(max(0, dx), dw - max(0, -dx)))   # farther from it
+        both = (ok4[a] & ok4[b]).ravel()
+        cost = (np.hypot(dx, dy) * DF + 60.0 * np.maximum(z4[a] - z4[b], 0)).ravel()
+        rows.append(n4[a].ravel()[both]); cols.append(n4[b].ravel()[both]); costs.append(cost[both])
+graph = coo_matrix((np.concatenate(costs), (np.concatenate(rows), np.concatenate(cols))), shape=(dh * dw, dh * dw)).tocsr()
+_, _, drains_to = dijkstra(graph, directed=True, indices=n4[chan4], min_only=True, return_predecessors=True)
+drains_to = drains_to.reshape(dh, dw)
+# Each 4 m channel cell stands for the 1 m channel cell in it that carries the most water.
+best = np.where(blocks(chan), blocks(acc_healed), -1).transpose(0, 2, 1, 3).reshape(dh, dw, DF * DF).argmax(axis=2)
+rep_r, rep_c = np.arange(dh)[:, None] * DF + best // DF, np.arange(dw)[None, :] * DF + best % DF
+src = np.repeat(np.repeat(drains_to, DF, axis=0), DF, axis=1)
+src = np.pad(src, ((0, H - src.shape[0]), (0, W - src.shape[1])), mode="edge")
+known = src >= 0
+cdrain = (np.where(known, rep_r.ravel()[np.maximum(src, 0)], cnear[0]), np.where(known, rep_c.ravel()[np.maximum(src, 0)], cnear[1]))
+cdrain = (np.where(chan, np.arange(H)[:, None], cdrain[0]), np.where(chan, np.arange(W)[None, :], cdrain[1]))   # a channel cell is its own
+rel = zh - ndi.gaussian_filter(bed[cdrain], 2.5)                # height above the bed of the channel it drains to
+print(f"drainage: {100 * ((cdrain[0] != cnear[0]) | (cdrain[1] != cnear[1]))[valid].mean():.0f}% of the ground drains to a channel point other than the nearest", flush=True)
 slope_s, slope_b = ndi.gaussian_filter(slope_deg, 3), ndi.gaussian_filter(slope_deg, 12)
 
 # Terrace height: flat ground 0.8 to 4 m above a channel, within 80 m of it, is
@@ -280,12 +340,12 @@ slope_s, slope_b = ndi.gaussian_filter(slope_deg, 3), ndi.gaussian_filter(slope_
 # little such ground (confined valleys) are treated as not incised.
 terrace = (slope_s < 8) & (rel > 0.8) & (rel < 4.0) & (cdist < 80)
 num, den = np.zeros(zh.shape, "f4"), np.zeros(zh.shape, "f4")
-np.add.at(num, (cnear[0][terrace], cnear[1][terrace]), rel[terrace])
-np.add.at(den, (cnear[0][terrace], cnear[1][terrace]), 1.0)
+np.add.at(num, (cdrain[0][terrace], cdrain[1][terrace]), rel[terrace])
+np.add.at(den, (cdrain[0][terrace], cdrain[1][terrace]), 1.0)
 num, den, length = ndi.gaussian_filter(num, 30), ndi.gaussian_filter(den, 30), ndi.gaussian_filter(chan.astype("f4"), 30)
 per_metre = den / np.maximum(length, 1e-9)                      # m2 of terrace per metre of channel
 incision = np.where(chan, np.minimum(num / np.maximum(den, 1e-9), 3.2) * np.clip((per_metre - 5) / 15, 0, 1), 0)
-incision = ndi.gaussian_filter(incision[cnear], 18)             # carried out from each channel, seams smoothed
+incision = ndi.gaussian_filter(incision[cdrain], 18)            # carried out from each channel, seams smoothed
 fill = np.clip(incision - rel, 0, None) * np.clip((75 - cdist) / 15, 0, 1)
 fill = ndi.gaussian_filter(fill, 2.0)
 rel_filled = rel + fill
@@ -299,6 +359,12 @@ floor_wet = ndi.gaussian_filter(floor_wet, 4)
 # Inset floodplain: low, flat ground beside the channel as surveyed. It stays wet.
 inset_wet = np.clip((1.25 - rel) / 0.5, 0, 1) * np.clip((12 - slope_s) / 5, 0, 1) * np.clip((55 - cdist) / 20, 0, 1)
 inset_wet = ndi.gaussian_filter(inset_wet, 1.5)
+# Riparian strips. Along every stream outside the meadows the conifers stand
+# back and willows and lush ground take their place, wider on bigger streams:
+# from the air these are what trace the drainage through the forest.
+rip_reach = np.clip(3.5 + 3.5 * np.log10(np.maximum(acc_healed, WATER_MIN) / WATER_MIN), 3.5, 11)
+riparian = np.clip((rip_reach[cnear] - cdist) / 2.5, 0, 1) * valid
+inset_wet = np.maximum(inset_wet, 0.9 * riparian)
 # Hollows hold their moisture longer; ground beside channels that never cut down keeps it for good.
 # The order in which the meadow dries once its channel has cut down: from the
 # edges inward (0 at the forest edge, 0.8 beside the channel), hollows a little
@@ -342,7 +408,7 @@ k = reach_id[on] - 1
 arrive_chan[on] = (flow_dist[on] - lo[k]) / np.maximum(length[k], 1.0) * took[k] / CUT_SPAN
 # Ground beside a channel is cut when its channel is; the seams between
 # neighbouring channels are smoothed.
-arrive = np.clip(ndi.gaussian_filter(arrive_chan[cnear], 5), 0, 1)
+arrive = np.clip(ndi.gaussian_filter(arrive_chan[cdrain], 5), 0, 1)
 cut_stage = CUT_START + CUT_SPAN * arrive                        # the stage at which each spot starts to cut down
 in_core = np.zeros(zh.shape, bool)
 in_core[r0:r0 + n, c0:c0 + n] = True
@@ -359,44 +425,117 @@ bank_rng = np.random.default_rng(23)
 bank_dist = np.maximum(cdist + sstep(cdist, 3.0, 12.0) * (6.0 * smooth_noise(8, bank_rng) + 3.0 * smooth_noise(3, bank_rng)), 0)
 
 # ---- the meadow's many small channels (before one channel captures the flow) ----
-# Noise smeared along the direction of flow has long, lens-shaped contours;
-# its zero contour is a network of threads that split and rejoin around
-# islands. Only made near the 1 m window: at 4 m a thread is not resolvable.
+# Water crossed the meadow in several small channels that split and rejoin.
+# Each is a route from where water really enters the meadow (the stream, a side
+# drainage) or leaves another channel, down the meadow to its outlet, so none
+# starts or stops in the open. The pre-incision floor is a reconstruction and
+# close to level across the valley, so a route is not steepest descent on it:
+# it is the easiest way to the outlet over ground made uneven at random, which
+# wanders and gathers the way water does over a floor with no relief to speak
+# of. One routing keeps to the line of the stream; three more, over ground
+# roughened differently, give the other courses.
+# Only made near the 1 m window: at 4 m a thread is not resolvable.
 tm = 80
 wr0, wr1, wc0, wc1 = max(0, r0 - tm), min(H, r0 + n + tm), max(0, c0 - tm), min(W, c0 + n + tm)
-STEP = 2                                                        # worked out on a 2 m grid
-sub = (slice(wr0, wr1, STEP), slice(wc0, wc1, STEP))
-ux, uy = ndi.gaussian_filter(water["_healed"][1][sub], 7), ndi.gaussian_filter(water["_healed"][2][sub], 7)
-un = np.maximum(np.hypot(ux, uy), 1e-6)
-ux, uy = ux / un, uy / un                                       # unit flow direction (east, south), from the nearest channel
-base = ndi.gaussian_filter(rng.standard_normal(ux.shape).astype("f4"), 4.0)
-smeared = base.copy()
-yy, xx = np.mgrid[0:ux.shape[0], 0:ux.shape[1]].astype("f4")
-for sign in (1, -1):
-    py, px = yy.copy(), xx.copy()
-    for _ in range(28):                                         # 28 steps of 3 m each way
-        vx = ndi.map_coordinates(ux, [py, px], order=1, mode="nearest")
-        vy = ndi.map_coordinates(uy, [py, px], order=1, mode="nearest")
-        px += sign * 1.5 * vx
-        py += sign * 1.5 * vy
-        smeared += ndi.map_coordinates(base, [py, px], order=1, mode="nearest")
-smeared -= ndi.gaussian_filter(smeared, 25)
-smeared /= smeared.std()
-# Back to 1 m before taking the contour: its band is narrower than a 2 m cell.
-fine = lambda a, order: ndi.zoom(a, STEP, order=order)[:wr1 - wr0, :wc1 - wc0]
-smeared = fine(smeared, 3)
-gy_, gx_ = np.gradient(smeared)
-steep = np.hypot(gx_, gy_)                                      # per metre
-steep = np.maximum(steep, 0.45 * np.median(steep))              # where the field is nearly flat a thread swells into a pool
-half_width = np.clip(1.0 + 0.35 * fine(ndi.gaussian_filter(rng.standard_normal(ux.shape).astype("f4"), 6), 1) / 0.05, 0.7, 1.5)
+win = (slice(wr0, wr1), slice(wc0, wc1))
+hh, ww = wr1 - wr0, wc1 - wc0
+t_rng = np.random.default_rng(41)                                # its own random numbers
+wet_w, fd_w, chan_w, acc_w = floor_wet[win], flow_dist[win], chan[win], acc_healed[win]
+# Where the routes end: the stream just below a meadow, or the edge of the area worked on.
+meadow_chan = chan_w & (wet_w > 0.5)
+above = ndi.maximum_filter(np.where(meadow_chan, fd_w, -np.inf), 25)    # meadow channel upstream of here, close by
+below = ndi.minimum_filter(np.where(meadow_chan, fd_w, np.inf), 25)     # ... and downstream
+sink = chan_w & (wet_w < 0.3) & (above > fd_w + 2) & ~(below < fd_w - 2)
+sink[0, :] = sink[-1, :] = sink[:, 0] = sink[:, -1] = True
+node = np.arange(hh * ww).reshape(hh, ww)
+# Hard going outside the wet meadow and along its very edge; easy along the stream's own line.
+confine = (1 + 5 * (1 - sstep(wet_w, 0.2, 0.6))) * (1 + 1.5 * (1 - sstep(edge_in[win], 2, 14)))
+stream_line = np.where(water["_healed"][0][win] > -1.5, 0.3, 1.0)
+
+
+def routing(roughness, along_stream):
+    """For every cell, the next cell on its way to an outlet."""
+    # Uneven at every scale from a few metres to tens: a route then bends at
+    # every scale too, where over smooth ground it would run in straight lines.
+    bumps = np.zeros((hh, ww), "f4")
+    for sigma, weight in ((3, 0.45), (8, 0.45), (20, 0.35)):
+        layer = ndi.gaussian_filter(t_rng.standard_normal((hh, ww)).astype("f4"), sigma)
+        bumps += weight * layer / layer.std()
+    ease = (np.exp(roughness * bumps) * confine * (stream_line if along_stream else 1.0)).astype("f8")
+    rows, cols, costs = [], [], []
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if not (dx or dy):
+                continue
+            a = (slice(max(0, -dy), hh - max(0, dy)), slice(max(0, -dx), ww - max(0, dx)))   # from
+            b = (slice(max(0, dy), hh - max(0, -dy)), slice(max(0, dx), ww - max(0, -dx)))   # to
+            rows.append(node[b].ravel()); cols.append(node[a].ravel())                       # reversed: searched from the outlets
+            costs.append((np.hypot(dx, dy) * 0.5 * (ease[a] + ease[b])).ravel())
+    end = hh * ww                                                 # one node standing for every outlet
+    rows.append(np.full(int(sink.sum()), end)); cols.append(node[sink]); costs.append(np.full(int(sink.sum()), 1e-6))
+    graph = coo_matrix((np.concatenate(costs), (np.concatenate(rows), np.concatenate(cols))), shape=(end + 1, end + 1)).tocsr()
+    _, nxt = dijkstra(graph, directed=True, indices=end, return_predecessors=True)
+    return nxt
+
+
+routes = [routing(0.9, True), routing(1.7, False), routing(1.7, False), routing(1.7, False)]
+width = np.zeros((hh, ww), "f4")                                 # half-width of the widest thread through each cell
+wet_flat = wet_w.ravel()
+
+
+def run(start, family, half_width, upto=6000):
+    """Follow one routing from a cell to an outlet, marking the thread; returns its cells."""
+    out, v, end = [], int(start), hh * ww
+    while 0 <= v < end and len(out) < upto:
+        out.append(v)
+        v = routes[family][v]
+    if len(out) > 3:
+        # A course traced cell to cell is all right angles and diagonals: round it off.
+        ys, xs = np.divmod(np.array(out), ww)
+        ys, xs = ndi.gaussian_filter1d(ys.astype("f8"), 2.5, mode="nearest"), ndi.gaussian_filter1d(xs.astype("f8"), 2.5, mode="nearest")
+        t = np.arange(0, len(out) - 1 + 1e-9, 0.4)
+        yy, xx = np.rint(np.interp(t, np.arange(len(out)), ys)).astype(int), np.rint(np.interp(t, np.arange(len(out)), xs)).astype(int)
+        np.maximum.at(width, (yy, xx), half_width)
+    return out
+
+
+def split(course, family, half_width, every, deeper):
+    """Channels that leave this one part-way down, each to rejoin lower."""
+    made, step = 0, int(t_rng.uniform(0.4, 1.0) * every)
+    while step < len(course) - 25:
+        if wet_flat[course[step]] > 0.6:
+            f = 1 + (family + made) % 3
+            branch = run(course[step], f, half_width)
+            made += 1
+            if deeper:
+                made += split(branch[:400], f, 0.6, 2.2 * every, False)
+        step += int(t_rng.uniform(0.7, 1.3) * every)
+    return made
+
+
+# Where water enters: the largest drainage crossing each stretch of the meadow's edge.
+ring = (wet_w > 0.45) & (wet_w < 0.62)
+entry = ring & (acc_w >= 8000) & (acc_w == ndi.maximum_filter(np.where(ring, acc_w, 0), 31))
+n_entries = n_splits = 0
+for v in node[entry]:
+    a = acc_w.ravel()[v]
+    hw = 1.15 if a >= WATER_MIN else 0.85 if a >= 20000 else 0.6
+    main = run(v, 0, hw)
+    n_entries += 1
+    if hw > 0.8:
+        for family in (1, 2):                                    # the same water by other courses
+            n_splits += split(run(v, family, 0.85), family, 0.6, 70, False)
+        n_splits += split(main, 0, 0.85, 42, True)
+    else:
+        n_splits += split(main, 0, 0.6, 110, False)
+sdf_w = np.full((hh, ww), -4.0, "f4")
+for hw in (0.6, 0.85, 1.15):
+    sdf_w = np.maximum(sdf_w, hw - ndi.distance_transform_edt(width < hw - 0.01))
 thread_sdf = np.full((H, W), -4.0, "f4")
-# Two sets of contours: the zero line, and a slimmer one either side of it, so
-# threads run in loose bundles around lens-shaped islands.
-thread_sdf[wr0:wr1, wc0:wc1] = np.maximum(half_width - np.abs(smeared) / steep,
-                                          0.75 * half_width - np.abs(np.abs(smeared) - 1.05) / steep)
-# Threads belong to the wet meadow, and peter out here and there.
-gaps = sstep(smooth_noise(55), 0.9, 1.5)
-thread_sdf = np.clip(thread_sdf - 5.0 * (1 - sstep(floor_wet, 0.45, 0.75)) - 5.0 * gaps, -4, 4)
+thread_sdf[win] = ndi.gaussian_filter(sdf_w, 0.9)                # rounds the stair-steps of a course traced cell to cell
+# Threads belong to the wet meadow; a side drainage fades in from under the trees at its edge.
+thread_sdf = np.clip(thread_sdf - 5.0 * (1 - sstep(floor_wet, 0.3, 0.5)), -4, 4)
+print(f"threads: {n_entries} drainages enter the window's meadows, {n_splits} channels split off them", flush=True)
 
 # ---- flight path -----------------------------------------------------------------
 # Downstream all the way: from the head of the tributary through --path-via (the
@@ -467,8 +606,10 @@ mw = floor_wet[core]
 myy, mxx = np.mgrid[0:n, 0:n]
 lx, lz = float((mw * mxx).sum() / mw.sum()), float((mw * myy).sum() / mw.sum())
 spread = float(np.percentile(np.hypot(mxx - lx, myy - lz)[mw > 0.5], 90))
-LAND_R = round(1.25 * spread + 120.0)
-landscape = {"x": round(lx), "z": round(lz), "radius": LAND_R, "height": round(0.72 * LAND_R), "period": 300}
+LAND_R = round(0.95 * spread + 80.0)
+# Looking down at about 50 degrees: steep enough to see into the stream
+# corridors between the trees, which is what traces the drainage.
+landscape = {"x": round(lx), "z": round(lz), "radius": LAND_R, "height": round(1.2 * LAND_R), "period": 300}
 print(f"landscape view: circles {landscape['x']}, {landscape['z']} at {LAND_R} m, {landscape['height']} m up (nine tenths of the window's meadow lies within {spread:.0f} m of it)", flush=True)
 
 on_path = np.zeros((H, W), bool)
@@ -504,7 +645,7 @@ def jittered(spacing, r_lo, r_hi, c_lo, c_hi):
 # roads erased, and from the air a treeless strip is a road all the same. Each
 # tree on a road's line is marked, and is taken away when the roads are shown.
 road_cell = ndi.maximum_filter(road, 5) >= 0.5
-buildable = (edge_dist > 3) & (near_water < -1.0) & (slope_deg < 44) & (path_dist > 5.5)
+buildable = (edge_dist > 3) & (near_water < -1.0) & (slope_deg < 44) & (path_dist > 5.5) & (riparian < 0.5) & (thread_sdf < -0.6)
 upland = floor_wet <= 0.4                                          # forest from the start
 dries = (floor_wet > 0.4) & (hold < 0.9) & (inset_wet < 0.4)       # meadow the conifers will take
 forest_dist = ndi.distance_transform_edt(~upland)                  # metres into the meadow from standing forest
@@ -601,14 +742,16 @@ if "willow" in kinds:
     standable = (edge_dist > 3)[ir, ic] & (ndi.maximum_filter(road, 5) < 0.5)[ir, ic] & (slope_deg < 25)[ir, ic]
     beside = lambda sdf, near, far: (sdf[ir, ic] < -near) & (sdf[ir, ic] > -far)
     # On the meadow as it was: beside a thread or the stream, on ground that will not be cut away.
-    old = standable & (floor_wet[ir, ic] > 0.55) & (fill[ir, ic] < 0.3) & (beside(thread_sdf, 0.4, 3.0) | beside(water["_healed"][0], 0.6, 4.5)) \
-        & (u[0] < 0.08 + 0.7 * clumped)
+    # ... and along the streams that never cut down, where they stay.
+    old = standable & (fill[ir, ic] < 0.3) \
+        & (((floor_wet[ir, ic] > 0.55) & (beside(thread_sdf, 0.4, 3.0) | beside(water["_healed"][0], 0.6, 4.5)) & (u[0] < 0.08 + 0.7 * clumped))
+           | ((floor_wet[ir, ic] <= 0.55) & (riparian[ir, ic] > 0.35) & (water["_healed"][0][ir, ic] < -0.5) & (u[0] < 0.75)))
     dies = np.where(hold[ir, ic] >= 0.95, NEVER, cut_stage[ir, ic] + 0.35 + DRY_SPAN * hold[ir, ic] + DRY_WIDTH * (0.6 + 1.2 * u[1]))
     # On the trench's floor: willows are among the first plants onto raw sediment,
     # soon after the bank has passed, and are shrubs a couple of stages later.
-    passed = np.clip((bank_dist[ir, ic] - SLOT) / (80 - SLOT), 0, 1) ** (2 / 3)
+    passed = np.sqrt(np.clip((bank_dist[ir, ic] - SLOT) / (80 - SLOT), 0, 1))
     new = standable & (inset_wet[ir, ic] > 0.5) & (fill[ir, ic] >= 0.3) & beside(water[""][0], 0.8, 14.0) & (u[0] < 0.08 + 0.7 * clumped)
-    comes = cut_stage[ir, ic] + 0.7 * CUT_TIME + passed * WIDEN_TIME + 0.2 + 0.8 * u[1]
+    comes = cut_stage[ir, ic] + 0.7 * CUT_TIME + passed * WIDEN_TIME + 0.5 + 1.0 * u[1]
     for which, (ok, born, died) in enumerate([(old, np.full(r.size, -10.0), dies), (new, comes, np.full(r.size, NEVER))]):
         pick = np.minimum((u[2][ok] * len(willow_types)).astype(int), len(willow_types) - 1)
         kind_w = willow_types[pick]
@@ -637,7 +780,14 @@ trees["death"] = stage_byte(death)      # 255 = never
 trees["seed"] = rng.integers(0, 256, tr.size)
 trees["young"], trees["mature"], trees["snag"] = t_young, t_mature, t_snag
 trees["road"] = road_tree                # 1 = stands on a road's line: there only while the roads are hidden
-trees[np.argsort(trees["birth"], kind="stable")].tofile(os.path.join(OUT, "trees.bin"))
+# Sorted by when each tree germinates (the scene draws a prefix of the list),
+# then by place, and stored a column at a time with positions as differences
+# from the tree before: that way it packs to about a third of the size.
+tile = (trees["z"] // 1280).astype("i8") * 4096 + trees["x"] // 1280
+trees = trees[np.lexsort((trees["x"], trees["z"], tile, trees["birth"]))]
+columns = [np.diff(trees[k].astype("i4"), prepend=0).astype("<u2").tobytes() for k in ("x", "z")] \
+    + [trees[k].tobytes() for k in ("hmax", "birth", "death", "young", "mature", "snag", "road")]   # (each tree's seed is made from its position by the page)
+save_gz("trees.bin.gz", b"".join(columns))
 
 # ---- downed wood -----------------------------------------------------------
 # Logs lie through the upland forest from the start. On the meadow they appear
@@ -817,16 +967,17 @@ far_dists = geometric(fc, 4000, 1.05)
 far_sun = horizon_tan(far_z, fc, args.sun_az, far_dists)
 far_vis = sky_visibility(far_z, fc, geometric(fc, 600, 1.5))
 far_filled = block(filled)
-save_rgb("far_bake.png", deg45(far_sun), (far_vis - 0.5) / 0.5, block(inset_wet))
-save_rgb("far_aux.png", block(road_soft), block(valid.astype("f4")), block(floor_wet))
-save_rgb("far_site.png", block(hold), deg45(horizon_tan(far_filled, fc, args.sun_az, far_dists)),
+save_rgb("far_bake.webp", deg45(far_sun), (far_vis - 0.5) / 0.5, block(inset_wet))
+save_rgb("far_aux.webp", block(road_soft), block(valid.astype("f4")), block(floor_wet))
+save_rgb("far_site.webp", block(hold), deg45(horizon_tan(far_filled, fc, args.sun_az, far_dists)),
          (sky_visibility(far_filled, fc, geometric(fc, 600, 1.5)) - 0.5) / 0.5)
-save_rgb("far_cut.png", block(fill) / 4.0, block(arrive), block(np.minimum(bank_dist, 120)) / 120.0)
-np.rint(block(arrive) * 65535).astype("<u2").tofile(os.path.join(OUT, "far_arrive.bin"))   # 8 bits would put the headcut on 4 m steps
-save_rgb("far_thread.png", *[np.zeros((fh, fw), "f4")] * 3)   # no threads at 4 m
-save_water("far", block)
-np.rint((far_z - zmin) / zscale).astype("<u2").tofile(os.path.join(OUT, "far_h.bin"))
-np.rint((block(healed) - zmin) / zscale).astype("<u2").tofile(os.path.join(OUT, "far_h_healed.bin"))
+save_rgb("far_cut.webp", block(fill) / 4.0, block(np.clip(edge_dist / EDGE_FADE, 0, 1)), block(np.minimum(bank_dist, 120)) / 120.0)
+save_grid16("far_arrive.bin.gz", np.rint(block(arrive) * 4095) * 16)   # 12 bits (about 0.1 m of channel); 8 would put the headcut on 4 m steps
+save_rgb("far_thread.webp", *[np.zeros((fh, fw), "f4")] * 3)   # no threads at 4 m
+save_water("far", block, block_max)   # the widest water in each 4 m cell, or small streams would average away
+far_q = np.rint((far_z - zmin) / zscale)
+save_grid16("far_h.bin.gz", far_q)
+save_gz("far_dh.bin.gz", (np.rint((block(healed) - zmin) / zscale) - far_q).astype("<i2"))   # healed minus surveyed: zero away from the roads
 
 # ---- core level --------------------------------------------------------
 # Near occluders at 1 m inside a padded window; distant ones from the far level.
@@ -853,18 +1004,24 @@ def core_bake(surface):
 
 core_sun, core_vis = core_bake(dem)
 filled_sun, filled_vis = core_bake(filled)
-save_rgb("core_bake.png", deg45(core_sun), (core_vis - 0.5) / 0.5, inset_wet[core])
-save_rgb("core_aux.png", road_soft[core], valid[core].astype("f4"), floor_wet[core])
-save_rgb("core_site.png", hold[core], deg45(filled_sun), (filled_vis - 0.5) / 0.5)
-save_rgb("core_cut.png", fill[core] / 4.0, arrive[core], np.minimum(bank_dist[core], 120) / 120.0)
-np.rint(arrive[core] * 65535).astype("<u2").tofile(os.path.join(OUT, "core_arrive.bin"))
-save_rgb("core_thread.png", *[0.5 + thread_sdf[core] / 8.0] * 3)
+save_rgb("core_bake.webp", deg45(core_sun), (core_vis - 0.5) / 0.5, inset_wet[core])
+save_rgb("core_aux.webp", road_soft[core], valid[core].astype("f4"), floor_wet[core])
+save_rgb("core_site.webp", hold[core], deg45(filled_sun), (filled_vis - 0.5) / 0.5)
+save_rgb("core_cut.webp", fill[core] / 4.0, np.clip(edge_dist[core] / EDGE_FADE, 0, 1), np.minimum(bank_dist[core], 120) / 120.0)
+save_grid16("core_arrive.bin.gz", np.rint(arrive[core] * 4095) * 16)
+save_rgb("core_thread.webp", *[0.5 + thread_sdf[core] / 8.0] * 3)
 save_water("core", lambda a: a[core])
-np.rint((dem[core] - zmin) / zscale).astype("<u2").tofile(os.path.join(OUT, "core_h.bin"))
-np.rint((healed[core] - zmin) / zscale).astype("<u2").tofile(os.path.join(OUT, "core_h_healed.bin"))
-for stale in ("core_veg.png", "far_veg.png"):
-    if os.path.exists(os.path.join(OUT, stale)):
-        os.remove(os.path.join(OUT, stale))
+core_q = np.rint((dem[core] - zmin) / zscale)
+save_grid16("core_h.bin.gz", core_q)
+save_gz("core_dh.bin.gz", (np.rint((healed[core] - zmin) / zscale) - core_q).astype("<i2"))
+# Files this script used to write under other names.
+for level in ("core", "far"):
+    for stale in [f"{level}_{k}.png" for k in ("bake", "aux", "site", "cut", "thread", "water", "water_healed", "veg")] \
+            + [f"{level}_h.bin", f"{level}_h_healed.bin", f"{level}_arrive.bin"]:
+        if os.path.exists(os.path.join(OUT, stale)):
+            os.remove(os.path.join(OUT, stale))
+if os.path.exists(os.path.join(OUT, "trees.bin")):
+    os.remove(os.path.join(OUT, "trees.bin"))
 
 # ---- metadata ----------------------------------------------------------
 gt = info["geoTransform"]

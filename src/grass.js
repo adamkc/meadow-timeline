@@ -1,7 +1,8 @@
-// Meadow plants in rings that travel with the camera: single blades underfoot,
-// then cards showing plants out to the middle distance. Grass, flowers and a
-// leafy forb are scans (Poly Haven, CC0); sedge, rush and corn lily are built
-// in tools/proc_plants.js. See tools/pack_plants.py for the atlas.
+// Meadow and forest-floor plants in rings that travel with the camera: single
+// blades underfoot, then cards showing plants out to the middle distance.
+// Meadow grass and bunchgrass are scans (Poly Haven, CC0); sedge, rush and the
+// Sierra Nevada wildflowers and ferns are built in tools/proc_plants.js. See
+// tools/pack_plants.py for the atlas.
 //
 // Each plant keeps a fixed place in the world (its offset wraps around the
 // ring) and reads the terrain textures there. Which plant it is follows the
@@ -12,15 +13,36 @@ import * as THREE from 'three';
 import { COMMON_GLSL } from './shaders.js';
 import { ROSETTES, rosetteTexture } from './rosettes.js';
 
-const KINDS = ['lush', 'dry', 'flower', 'forb', 'sedge', 'rush', 'lily'];
-const MAX_PLANTS = 25;
-// Each kind's own green, as a factor on the meadow's colour where it grows:
-// meadow grass light and yellowish, sedge a plain mid green, rush dark and
-// bluish, corn lily a pale blue-green, bunchgrass toward straw.
-const TINTS = {
-  lush: [1.12, 1.1, 0.78], dry: [1.12, 1.0, 0.8], flower: [1.08, 1.1, 0.8], forb: [0.82, 1.02, 0.86],
-  sedge: [0.9, 1.0, 0.95], rush: [0.66, 0.8, 0.8], lily: [0.86, 1.14, 1.08],
-};
+const MAX_PLANTS = 36;
+// The sward: grasses and their like, which make up most of the meadow. Which
+// one grows where follows the ground's moisture (see the vertex shader). Each
+// has its own green, a factor on the meadow's colour where it grows: meadow
+// grass light and yellowish, bunchgrass toward straw, sedge a plain mid green,
+// rush dark and bluish.
+const SWARD = { lush: [1.12, 1.1, 0.78], dry: [1.12, 1.0, 0.8], sedge: [0.9, 1.0, 0.95], rush: [0.66, 0.8, 0.8] };
+// Wildflowers and understory plants of the Sierra Nevada, each where it grows:
+//   wet     the moisture it wants, from .. to (1 saturated, 0 dry)
+//   shade   the canopy cover it wants, from .. to (0 open, 1 closed)
+//   perM2   plants per square metre where it grows best
+//   drift   it grows in drifts: [which of four noise patterns, +1 where that is high or -1 low, how far into the tail]
+//   flower, leaf   its colours as seen from the air; clump: its picture from above (rosettes.js) and that picture's width in metres
+// Wet meadow first, then the plants of moist and drying ground, then the forest floor.
+const FORBS = [
+  { kind: 'camas',         wet: [0.72, 2], shade: [-1, 0.35], perM2: 1.6,  drift: [0, 1, 0.6],   flower: [0.2, 0.19, 0.78],   leaf: [0.1, 0.2, 0.06],   clump: [8, 1.2] },
+  { kind: 'shootingstar',  wet: [0.66, 2], shade: [-1, 0.4],  perM2: 1.0,  drift: [1, 1, 0.62],  flower: [0.6, 0.07, 0.3],    leaf: [0.11, 0.21, 0.06], clump: [8, 0.9] },
+  { kind: 'bistort',       wet: [0.55, 0.97], shade: [-1, 0.4], perM2: 0.9, drift: [0, -1, 0.62], flower: [0.52, 0.5, 0.47],  leaf: [0.1, 0.2, 0.06],   clump: [8, 1.0] },
+  { kind: 'elephantshead', wet: [0.78, 2], shade: [-1, 0.3],  perM2: 0.6,  drift: [3, -1, 0.63], flower: [0.6, 0.16, 0.38],   leaf: [0.09, 0.17, 0.06], clump: [8, 0.8] },
+  { kind: 'sneezeweed',    wet: [0.5, 0.9], shade: [-1, 0.4], perM2: 0.5,  drift: [2, 1, 0.62],  flower: [0.8, 0.55, 0.03],   leaf: [0.1, 0.2, 0.06],   clump: [8, 1.0] },
+  { kind: 'lily',          wet: [0.28, 0.82], shade: [-1, 0.5], perM2: 0.5, drift: [1, -1, 0.55], flower: [0.7, 0.7, 0.6],    leaf: [0.15, 0.29, 0.1],  clump: [5, 1.5] },
+  { kind: 'lupine',        wet: [0.4, 0.85], shade: [-1, 0.6], perM2: 0.3, drift: [3, 1, 0.6],   flower: [0.17, 0.14, 0.62],  leaf: [0.08, 0.19, 0.07], clump: [9, 1.3] },
+  { kind: 'paintbrush',    wet: [0.3, 0.7], shade: [-1, 0.5], perM2: 0.35, drift: [2, -1, 0.62], flower: [0.75, 0.08, 0.02],  leaf: [0.1, 0.17, 0.06],  clump: [8, 0.8] },
+  { kind: 'yarrow',        wet: [0.06, 0.45], shade: [-1, 0.45], perM2: 0.9, drift: [0, 1, 0.56], flower: [0.5, 0.49, 0.42],  leaf: [0.13, 0.19, 0.11], clump: [12, 1.0] },
+  { kind: 'mulesears',     wet: [-1, 0.3], shade: [-1, 0.4],  perM2: 0.4,  drift: [1, -1, 0.57], flower: [0.85, 0.52, 0.03],  leaf: [0.2, 0.26, 0.16],  clump: [10, 1.3] },
+  { kind: 'bracken',       wet: [0.02, 0.6], shade: [0.3, 2], perM2: 0.7,  drift: [2, 1, 0.5],   flower: [0, 0, 0],           leaf: [0.09, 0.22, 0.04], clump: [11, 2.2], shadeTolerant: true },
+  { kind: 'snowplant',     wet: [-1, 0.4], shade: [0.55, 2],  perM2: 0.012, drift: [3, -1, 0.45], flower: [0.6, 0.02, 0.02], leaf: [0.5, 0.03, 0.03],  clump: [13, 0.35], shadeTolerant: true },
+];
+const KINDS = [...Object.keys(SWARD), ...FORBS.map((f) => f.kind)];
+const FIRST_FORB = Object.keys(SWARD).length, LILY = KINDS.indexOf('lily');
 
 const LEVEL_UNIFORMS = (p) => /* glsl */ `
 uniform sampler2D u${p}Heights, u${p}Chan, u${p}Bake, u${p}Zone, u${p}Water, u${p}WaterHealed;
@@ -61,6 +83,11 @@ uniform vec2 uDetail;      // the share of this ring's plants being drawn; 1 / p
 uniform float uUse;        // 1 while this ring is in use, 0 when another has taken over (see createGrass)
 uniform vec3 uKindTint[${KINDS.length}];  // each kind's own green, as a factor on the meadow's colour
 uniform vec3 uRosette[${KINDS.length}];   // from the air: each kind's first picture of itself from above, how many, its width in metres
+#define NFORB ${FORBS.length}
+uniform vec4 uForbA[NFORB];   // the moisture it wants, from .. to; the canopy cover it wants, from .. to
+uniform vec4 uForbB[NFORB];   // plants per m2 at best; which noise makes its drifts; +1 high or -1 low; how far into the tail
+uniform vec4 uForbLeaf[NFORB];   // its leaves' colour from the air; 1 if it grows under a closed canopy
+uniform vec3 uForbFlower[NFORB]; // its flowers' colour from the air
 attribute vec2 aOff;
 attribute vec4 aRnd;
 varying vec3 vWorld;
@@ -68,7 +95,8 @@ varying vec3 vAlbedo;
 varying vec3 vNormal;
 varying vec3 vLight;       // shadow, sky visibility, height along the plant
 varying vec4 vUv;          // cards: texture u (repeating), v, which picture, 1 for plants that keep their own colour
-varying vec4 vAir;         // clumps seen from the air: the sun's direction across the picture, the wind's gust, the flower's colour (0 or 1)
+varying vec4 vAir;         // clumps seen from the air: the sun's direction across the picture, the wind's gust
+varying vec3 vFlower;      // ... and the colour of its flowers
 
 // 0 where a plant is about to change into another (its own number p is close
 // to the threshold t that decides), 1 otherwise: it shrinks away as one thing
@@ -96,9 +124,13 @@ void main() {
   float arrive = chan.r;
   float trench = incised(arrive);               // how deep the channel has cut here
   float cut = removed(ground.a, arrive);        // how much of the fill is gone at this very spot
-  float inWater = max(mainWater, threadWater((chan.g - 0.5) * 8.0, arrive));
+  float inWater = mainWater;
+  // The meadow's small channels are open sand and water; plants stand back
+  // from them. A clump seen from above is wide, so its middle stands back farther.
 #ifdef AERIAL
-  inWater -= 0.5; // sedges lean in over the water: from above, a thread shows as a narrow dark line
+  float channel = threadBed((chan.g - 0.5) * 8.0 + 0.5, arrive) * (1.0 - cut);
+#else
+  float channel = threadBed((chan.g - 0.5) * 8.0 + 0.15, arrive) * (1.0 - cut);
 #endif
   float road = zone.a * (1.0 - uHeal);
   float cover = shade.y;
@@ -107,10 +139,34 @@ void main() {
   // Roads, steep ground, water and cobble bars, ground a failing bank has just
   // exposed, and canopy thin the plants one by one. Wet ground keeps its sward
   // even under trees.
-  float density = step(0.5, chan.b) * (1.0 - smoothstep(0.25, 0.6, road)) * (1.0 - freshBank(ground.a, ground.b, arrive)) * (1.0 - headcut(ground.a, ground.b, arrive))
+  float density = step(0.5, chan.b) * (1.0 - smoothstep(0.25, 0.6, road)) * (1.0 - freshBank(ground.a, ground.b, arrive)) * (1.0 - headcut(ground.a, ground.b, arrive)) * (1.0 - channel)
                 * (1.0 - 0.92 * smoothstep(0.09, 0.24, slope))
-                * (1.0 - 0.96 * smoothstep(0.3, 0.75, cover + 0.3 * (1.0 - smoothstep(0.05, 0.35, zone.r))) * (1.0 - smoothstep(0.5, 0.8, wet)))
                 * (1.0 - smoothstep(mix(-0.45, -0.7, trench), mix(0.0, -0.1, trench), inWater) * (1.0 - smoothstep(0.3, 0.7, road)));
+  float canopy = 1.0 - 0.96 * smoothstep(0.3, 0.75, cover + 0.3 * (1.0 - smoothstep(0.05, 0.35, zone.r))) * (1.0 - smoothstep(0.5, 0.8, wet));
+#ifdef TUFT
+  // Which plant. First the wildflowers and understory plants: each wants its
+  // own moisture and shade and grows in drifts, and a plant here is one of
+  // them if its own number comes up. A plant close to becoming one, or to
+  // ceasing to be one, is small: it shrinks away as one thing and grows back
+  // as another.
+  float m = wet + (fbm(root / 13.0 + 2.0) - 0.5) * 0.3;        // the ragged edge between communities comes from a slow noise
+  vec4 drifts = vec4(texture2D(uNoise, (root / 23.0 + 3.0) / 16.0).rg, texture2D(uNoise, (root / 41.0 + 11.0) / 16.0).rg);
+  int forb = -1;
+  float change = 1.0;
+  for (int i = 0; i < NFORB; i++) {
+    if (forb >= 0) break;
+    vec4 A = uForbA[i], B = uForbB[i];
+    if (m < A.x - 0.07 || m > A.y + 0.07 || cover < A.z - 0.12 || cover > A.w + 0.12) continue; // not its kind of ground: most are not, anywhere
+    float suits = smoothstep(A.x - 0.07, A.x + 0.07, m) * (1.0 - smoothstep(A.y - 0.07, A.y + 0.07, m))
+                * smoothstep(A.z - 0.12, A.z + 0.12, cover) * (1.0 - smoothstep(A.w - 0.12, A.w + 0.12, cover));
+    float p = min(1.0, B.x * uSpecial.x) * suits * smoothstep(B.w, B.w + 0.06, 0.5 + B.z * (drifts[int(B.y)] - 0.5));
+    float mine = fract(aRnd.w * (29.3 + 17.71 * float(i)));
+    change *= smoothstep(0.0, 0.1, abs(p - mine) / max(p, 1e-3));
+    if (mine < p) forb = i;
+  }
+  if (forb >= 0 && uForbLeaf[forb].a > 0.5) canopy = 1.0;   // ferns and snow plant are at home under the trees
+#endif
+  density *= canopy;
   // Where grass is sparse it grows in clumps, not as lone blades.
   float chance = fract(aRnd.w * 7.31);
 #ifndef TUFT
@@ -129,41 +185,27 @@ void main() {
   float height = uHeight * (0.5 + 0.8 * lush) * (0.55 + 0.9 * aRnd.y) * sqrt(shown);
   float t = position.y;
 #ifdef TUFT
-  // Which plant. The ragged edge between communities comes from a slow noise.
-  float m = wet + (fbm(root / 13.0 + 2.0) - 0.5) * 0.3;
+  // Otherwise it is part of the sward, by moisture.
   float pick = fract(aRnd.w * 91.7);
   float moist = smoothstep(0.22, 0.55, m), soaked = smoothstep(0.62, 0.9, m);
   int kind = 1;                                                   // dry bunchgrass
   if (pick < moist) kind = 0;                                     // meadow grass where it is moist
   if (pick < soaked) {                                            // a sedge sward where it is wet,
-    kind = fbm2(root / 9.0 + 5.0) > 0.57 ? 5 : 4;                 // with rushes in patches
+    kind = fbm2(root / 9.0 + 5.0) > 0.57 ? 3 : 2;                 // with rushes in patches
   }
-  float change = settled(pick, moist) * settled(pick, soaked);
   float special = 0.0;
-  // Corn lily: stands on ground that is moist but no longer saturated: the
-  // meadow's margin while it is intact, and the terrace as it dries.
-  float lilyGround = smoothstep(0.2, 0.38, m) * (1.0 - smoothstep(0.72, 0.9, m));
-  float lily = min(1.0, 5.0 * uSpecial.x) * lilyGround * smoothstep(0.5, 0.6, fbm2(root / 23.0 + 3.0));
-  if (fract(aRnd.w * 29.3) < lily) { kind = 6; special = 1.0; change = 1.0; }
-  change *= settled(fract(aRnd.w * 29.3), lily);
-  // Flowers in drifts, and a leafy forb here and there, through the moist middle.
-  float mesic = smoothstep(0.35, 0.5, m) * (1.0 - smoothstep(0.85, 0.97, m));
-  if (uSpecial.y < 1.5) { // near rings only
-    float drift = min(1.0, 1.0 * uSpecial.x) * mesic * smoothstep(0.5, 0.62, fbm(root / 19.0 + 7.0)), forb = 0.12 * uSpecial.x * mesic;
-    if (special < 0.5 && fract(aRnd.w * 53.1) < drift) { kind = 2; special = 1.0; }
-    if (special < 0.5 && fract(aRnd.w * 71.9) < forb) { kind = 3; special = 1.0; }
-    if (kind != 6) change *= settled(fract(aRnd.w * 53.1), drift) * settled(fract(aRnd.w * 71.9), forb);
-  }
+  if (forb >= 0) { kind = ${FIRST_FORB} + forb; special = 1.0; }
+  else change *= settled(pick, moist) * settled(pick, soaked);
   shown *= change;
   vec2 range = uKind[kind];
-  // Flowers come in drifts of one kind.
-  float which = kind == 2 ? step(0.5, fbm(root / 43.0 + 11.0)) * (range.y - 1.0) : floor(fract(aRnd.w * 13.37) * range.y);
+  float which = floor(fract(aRnd.w * 13.37) * range.y);
   // Corn lily: the last picture is a stem in flower. Few stems flower in any year.
-  if (kind == 6) which = fract(aRnd.w * 37.1) < 0.02 ? range.y - 1.0 : floor(fract(aRnd.w * 13.37) * (range.y - 1.0));
+  if (kind == ${LILY}) which = fract(aRnd.w * 37.1) < 0.02 ? range.y - 1.0 : floor(fract(aRnd.w * 13.37) * (range.y - 1.0));
   float picture = range.x + min(which, range.y - 1.0);
   vec4 info = uPlantInfo[int(picture + 0.5)];
-  float size = 0.75 + 0.5 * aRnd.y;
-  height = info.y * size * sqrt(shown) * mix(0.6 + 0.5 * lush, 1.0, special);
+  // Flowers stand a little above the sward they grow in, or they would not be seen (nor pollinated).
+  float size = mix(0.75, 1.0, special) + 0.5 * aRnd.y;
+  height = info.y * size * sqrt(shown) * mix(0.5 + 0.38 * lush, 1.0, special);
 #endif
 
   // A gust field travelling down the valley, plus each plant's own flutter.
@@ -174,6 +216,7 @@ void main() {
   vec2 face = vec2(cos(ang), sin(ang)), across = vec2(-face.y, face.x);
   vec3 p = vec3(root.x, h, root.y);
   vAir = vec4(0.0);
+  vFlower = vec3(0.0);
 #ifdef AERIAL
   // Seen from the air: the clump from above, lying on the slope, turned any
   // way round. It does not follow the camera at all.
@@ -185,7 +228,8 @@ void main() {
   p.y += 0.3 * sqrt(shown) - dot(N.xz, off) / max(N.y, 0.4);
   vec2 sunXZ = normalize(uSunDir.xz);
   vUv = vec4(position.x + 0.5, position.y, rosette.x + floor(fract(aRnd.w * 13.37) * rosette.y), special);
-  vAir = vec4(dot(face, sunXZ), dot(across, sunXZ), gust, kind == 2 ? step(0.5, fbm(root / 43.0 + 11.0)) : 0.0);
+  vAir = vec4(dot(face, sunXZ), dot(across, sunXZ), gust, 0.0);
+  if (forb >= 0) vFlower = uForbFlower[forb];
 #elif defined(TUFT)
   // Face the camera, each card turned from it by its own fixed angle (up to
   // about 55 degrees either way) so they are never seen edge-on and never all
@@ -216,6 +260,7 @@ void main() {
 #endif
 #ifdef AERIAL
   t = 0.8;
+  if (forb >= 0) col = uForbLeaf[forb].rgb * mix(vec3(1.08, 1.0, 0.88), vec3(0.92, 1.0, 1.1), fract(aRnd.w * 3.71));
   col *= 0.74 + 0.52 * aRnd.y;
 #else
   col = mix(col, vec3(0.36, 0.33, 0.15), (1.0 - lush) * 0.25 * t); // straw tips where it is dry
@@ -237,6 +282,7 @@ uniform vec3 uPlantTint[${MAX_PLANTS}]; // 1 / each picture's average colour
 uniform sampler2D uRosettes; // clumps from above (rosettes.js)
 uniform vec2 uRosetteGrid;
 varying vec4 vAir;
+varying vec3 vFlower;
 varying vec3 vWorld;
 varying vec3 vAlbedo;
 varying vec3 vNormal;
@@ -258,7 +304,7 @@ void main() {
   // blades and the meadow pales in waves.
   float side = 2.0 * dot(vUv.xy - 0.5, vAir.xy);
   albedo = vAlbedo * (0.5 + 0.8 * tex.r) * (1.0 + 0.2 * side) * (1.0 + 0.12 * (vAir.z - 0.35));
-  albedo = mix(albedo, mix(vec3(0.85, 0.66, 0.1), vec3(0.72, 0.68, 0.9), vAir.w), tex.g * vUv.w);
+  albedo = mix(albedo, vFlower * (0.85 + 0.3 * tex.r), tex.g * vUv.w);
 #elif defined(TUFT)
   // A wide card shows its picture several times, every other one mirrored.
   float u = fract(vUv.x);
@@ -339,14 +385,21 @@ export function createGrass({ levels, shared, scene, floatLinear, plants, qualit
     uPlantInfo: { value: pad(list.map((p) => new THREE.Vector4(p.width, p.height, 0, 0)), () => new THREE.Vector4(1, 1, 0, 0)) },
     uPlantTint: { value: pad(list.map((p) => new THREE.Vector3(1 / p.mean[0], 1 / p.mean[1], 1 / p.mean[2])), () => new THREE.Vector3(1, 1, 1)) },
     // A kind with no pictures falls back to meadow grass.
-    uKind: { value: KINDS.map((k) => new THREE.Vector2(...(plants.index.kinds[k] ?? plants.index.kinds.lush))) },
-    uKindTint: { value: KINDS.map((k) => new THREE.Vector3(...TINTS[k])) },
-    uRosette: { value: KINDS.map((k) => new THREE.Vector3(...ROSETTES.kinds[k])) },
+    uKind: { value: KINDS.map((k) => {
+      if (!plants.index.kinds[k]) throw new Error(`plants.json has no pictures of ${k}. Run tools/rebuild_assets.sh.`);
+      return new THREE.Vector2(...plants.index.kinds[k]);
+    }) },
+    uKindTint: { value: KINDS.map((k) => new THREE.Vector3(...(SWARD[k] ?? [1, 1, 1]))) },
+    uRosette: { value: [...Object.keys(SWARD).map((k) => new THREE.Vector3(...ROSETTES.sward[k])), ...FORBS.map((f) => new THREE.Vector3(f.clump[0], 1, f.clump[1]))] },
+    uForbA: { value: FORBS.map((f) => new THREE.Vector4(...f.wet, ...f.shade)) },
+    uForbB: { value: FORBS.map((f) => new THREE.Vector4(f.perM2, ...f.drift)) },
+    uForbLeaf: { value: FORBS.map((f) => new THREE.Vector4(...f.leaf, f.shadeTolerant ? 1 : 0)) },
+    uForbFlower: { value: FORBS.map((f) => new THREE.Vector3(...f.flower)) },
     uRosettes: { value: rosetteTexture() }, uRosetteGrid: { value: new THREE.Vector2(ROSETTES.cols, ROSETTES.rows) },
   };
   const meshes = [];
   const rings = [
-    { patch: 22, count: 150000, width: 0.014, height: 0.55, inner: 0 },                 // blades
+    { patch: 22, count: 150000, width: 0.014, height: 0.46, inner: 0 },                 // blades
     { patch: 44, count: 110000, inner: 1.5, tuft: true, repeat: 1, alone: 1 },
     { patch: 130, count: 150000, inner: 14, tuft: true, repeat: 2, alone: 1 },
     // The outermost ring comes in two sizes. On foot the meadow is seen edge-on

@@ -8,28 +8,34 @@ stages, blending smoothly between them. A landscape view flies out to show
 every meadow in the valley going through the same change. Built toward a
 "prerendered film, then step in" page. Plain three.js, no build step yet.
 
-1. Wet meadow: water spreads through many small channels; sedge and rush
-   sward, willows along the channels
-2. One channel cuts down: a headcut climbs the meadow, leaving a narrow trench
-   behind it; the small channels below it go dry
-3. The trench widens: its banks fail and retreat, leaving a raw floor that
-   greens over; the meadow is now a terrace, drying from its edges inward
-4. Conifers move in: seedlings follow the drying front; corn lily and grasses
-   on ground that is still moist
-5. Thickets: dense young pine on the dried ground
+1. Wet meadow: water spreads through many small sandy channels; sedge and
+   rush sward, willows along the channels, camas, shooting star and bistort
+2. One channel cuts down: a headcut climbs the meadow, leaving a raw gully
+   behind it; the small channels above it go dry
+3. The trench widens: its banks fail and retreat, leaving a bare floor; the
+   meadow is now a terrace, drying from its edges inward; the old channels are
+   dry sand
+4. Conifers move in: seedlings follow the drying front; corn lily, lupine and
+   yarrow on ground that is still moist; the trench floor starts to green
+5. Thickets: dense young pine on the dried ground, mule's ears in the openings
 6. Closed stand: the thicket thins itself; snags, downed wood, litter
-7. Mature forest: closed canopy, open floor; wet meadow only inside the trench
+7. Mature forest: closed canopy over needle litter and bracken fern; wet
+   meadow only inside the trench
 
 **Live:** <https://adamcummings.net/meadow-timeline/> (a desktop browser with
-WebGL 2; about 40 MB to load).
+WebGL 2; about 23 MB to load).
 
 ![The wet meadow at the start of the timeline](media/wet_meadow.jpg)
 
-![The headcut climbing the meadow](media/headcut.jpg)
+![The gully behind the headcut, and the small channels gone dry](media/headcut.jpg)
+
+![Camas, bistort and willows along a channel in the wet meadow](media/flowers.jpg)
+
+![Bracken fern on the floor of the mature forest](media/ferns.jpg)
 
 ![All seven stages from the circling view](media/stages.jpg)
 
-![The landscape view as the trenches widen](media/landscape.jpg)
+![The landscape view: every meadow in the window, and the streams that join them](media/landscape.jpg)
 
 **Not yet:** the film renderer, the hand-off page, the reimagine brushes.
 
@@ -40,10 +46,16 @@ WebGL 2; about 40 MB to load).
 - **Reconstructed by rule of thumb:** everything about the past and the plants.
   The pre-incision surface is today's with channels filled back to the level
   of the flat ground beside them, wherever such ground lies within 4 m above
-  the channel. The meadow's small channels are a generated pattern, not read
-  from the DEM. Where headcuts start and how fast they climb, meadow extent,
-  moisture, where trees and willows stand and when they grow and die are
-  plausible, not surveyed. The timeline has no years on it.
+  the channel. The meadow's small channels are routed across that surface from
+  where water really enters each meadow to where it leaves, but their exact
+  courses are generated. Where headcuts start and how fast they climb, meadow
+  extent, moisture, which plants grow where, where trees and willows stand and
+  when they grow and die are plausible, not surveyed. The timeline has no
+  years on it.
+- **The plants are those of a Sierra Nevada meadow** and the forest that
+  replaces it, chosen for the story. They are not a survey of this site. The
+  trees are generic scanned pines and firs, standing in for lodgepole pine
+  (the usual invader of drying Sierra meadows) and the firs that follow it.
 - **Roads** are left out of the story: the terrain shown is the road-healed
   one, and trees stand along the roads' lines. H shows today's roads and takes
   those trees away.
@@ -94,7 +106,9 @@ tools/rebuild_assets.sh                    # everything, including the plant and
 ```
 
 `prep_terrain.py` reads the DEMs, flow accumulation and road mask from the
-parent repo. Options: `--site`, `--col0/--row0/--size` (the 1 m window),
+parent repo, and writes compact files: 8-bit layers as lossless WebP, 16-bit
+grids and the tree list gzipped (the page unpacks them itself, so the download
+is the same size on any host). Options: `--site`, `--col0/--row0/--size` (the 1 m window),
 `--sun-az/--sun-alt`, `--tree-spacing`, `--orbit` (centre of the camera's
 circle), `--path-via` (a point the stream flight passes through). Use the system Python: the conda base has no numpy.
 
@@ -141,32 +155,60 @@ the picture without blending over time.
 - **Terrain** (`main.js`, `shaders.js`): a 1024 m window at 1 m and the whole
   DEM at 4 m. Height = road-healed + fill not yet removed - the meadow's small
   channels.
+- **Drainage** (`prep_terrain.py`): every height in the valley model is
+  measured above the channel the ground drains to, not the nearest channel as
+  the crow flies (found by a least-climb search outward from the channels on a
+  4 m grid). Measuring from the nearest gave the meadows straight seams where
+  one channel's territory met another's. Outside the meadows each stream has a
+  riparian strip, 3.5 to 11 m either side by drainage area, kept clear of
+  conifers and planted with willows: that is what traces the drainage through
+  the forest from the air.
+- **The meadow's small channels** are routes over the pre-incision surface from
+  each place water enters a meadow (the stream, a side drainage) to the
+  meadow's outlet, so none starts or stops in the open. That surface is nearly
+  level across the valley, so a route is the easiest way over ground made
+  uneven at random; four such routings, and branches that leave one channel to
+  rejoin lower down, make the network. Their beds are sand: under water until
+  the headcut passes, then dry, and taken over by plants and litter only two
+  to four stages later.
 - **Channel evolution**: every incised reach (a run of channel with a terrace
-  beside it; 19 in this watershed) gets a headcut, a step in the bed about 9 m
+  beside it; 17 in this watershed) gets a headcut, a step in the bed about 5 m
   long with white water on it, that enters at the reach's downstream end and
   climbs at 450 m of channel per stage or faster, so all the meadows are cut
-  over the same stage. Behind it the channel is a slot a few metres wide at
-  full depth; then the banks retreat sideways, in bays and points, until
-  today's trench is exposed. The trench's new floor is raw sediment at first
-  and greens over during the following stage, nearest the channel first. The
-  small channels (threads) carry water until the headcut passes, then go dry
-  and grass over. When the headcut arrives is stored at 16 bits
-  (`*_arrive.bin`): at 8 it would climb in jumps.
+  over the same stage. Behind it is a gully 7 m wide at the trench's full
+  depth; then the banks retreat sideways, slowly at first, in bays and points,
+  until today's trench is exposed. Gully and trench floor stay raw sediment
+  for one to two and a half stages after the bank has passed, then green over
+  from the channel outward: that is the new floodplain. The bank on the sun's
+  side casts its shadow across the floor, worked out in the shader, since the
+  baked shadows know only the surveyed trench. When the headcut arrives is
+  stored at 12 bits (`*_arrive.bin.gz`): at 8 it would climb in jumps.
 - **Moisture**: before the capture the whole meadow is wet. After, a drying
   front crosses it from the edges to the channel over about two stages, and
   only the low ground inside the trench stays wet. Channels with no terrace
   beside them are treated as not incised and keep their meadow.
 - **Meadow plants** (`grass.js`, `rosettes.js`, `tools/pack_plants.py`,
-  `tools/proc_plants.js`): rings of plants around the camera, chosen by
-  moisture: sedge with patches of rush where saturated, meadow grass and
-  flowers where moist, corn lily on ground that is moist but no longer
-  saturated, bunchgrass where dry. On foot they are upright cards: grass and
-  flowers from scans; sedge, rush and corn lily modelled in code and rendered
-  to pictures the same way. From the air they are clumps seen from above, drawn
+  `tools/proc_plants.js`): rings of plants around the camera. The sward is
+  chosen by moisture: sedge with patches of rush where saturated, meadow grass
+  where moist, bunchgrass where dry. On foot they are upright cards: the two
+  grasses from scans, everything else modelled in code and rendered to
+  pictures the same way. From the air they are clumps seen from above, drawn
   in code and lying on the ground at any angle, because upright cards read as
   rows of strokes from up there. Each kind has its own green, each plant strays
   a little from it, and the meadow's base colour shifts in patches at two
   scales.
+- **Wildflowers and understory** (the `FORBS` table in `grass.js`): twelve
+  species, each with the moisture and shade it wants, how thickly it grows and
+  a drift pattern, so they come and go with the timeline. Wet meadow: common
+  camas (*Camassia quamash*), Sierra shooting star (*Primula jeffreyi*),
+  western bistort (*Bistorta bistortoides*), elephant's head (*Pedicularis
+  groenlandica*), Bigelow's sneezeweed (*Helenium bigelovii*). Moist and
+  drying ground: corn lily (*Veratrum californicum*), large-leaved lupine
+  (*Lupinus polyphyllus*), giant red paintbrush (*Castilleja miniata*), yarrow
+  (*Achillea millefolium*), woolly mule's ears (*Wyethia mollis*). Under the
+  trees: bracken fern (*Pteridium aquilinum*) and, rarely, snow plant
+  (*Sarcodes sanguinea*). The wet-meadow species persist on the floodplain
+  inside the trench.
 - **Willows** (`tools/proc_plants.js`, `prep_terrain.py`): a shrub modelled in
   code and drawn as a picture from eight sides, like a distant tree. Thickets
   stand along the small channels from the start and die back as their ground
@@ -180,11 +222,16 @@ the picture without blending over time.
   underneath late on. Far trees are pictures of scanned trees from eight sides;
   within about 25 m they are real trunks and branches with sprig cards.
 - **Tree shade**: baked at stages 3 to 7 and blended between them.
-- **Water**: painted on the terrain. Threads run over dark silt; the incised
-  channel has a cobble bed and bars.
-- **Landscape view**: a second circle, 716 m out and about 500 m up, around
+- **Water**: painted on the terrain. The small channels run over sand; the
+  incised channel has a cobble bed and bars. Far off, a stream is drawn at
+  least about a pixel wide so it does not break up.
+- **Landscape view**: a second circle, about 530 m out and 640 m up, around
   the middle of the window's meadows, on the same bearing as the first; the
-  camera flies between the two in six seconds.
+  camera flies between the two in six seconds. It looks down at about 50
+  degrees, steep enough to see into the stream corridors. It is the real
+  terrain with no vertical exaggeration: the whole lidar DEM of the watershed
+  (4.2 by 2.8 km), streams where flow accumulation puts them. The last 220 m
+  before the watershed boundary, where the data ends, dissolve into the sky.
 - **Camera**: circles one meadow lobe every 170 seconds, so the whole sequence
   is watched in one place. Its height follows the ground and the tallest trees
   that ever stand near the path, 18 m clear of their tops, smoothed so it rises
@@ -222,13 +269,11 @@ the picture without blending over time.
   metres. They are kept off ground the trench will take, since a shrub cannot
   yet fall in with its bank.
 - In the landscape view the meadows beyond the 1 m window are drawn from 4 m
-  data, with no small channels and no thickets, and the watershed ends at a
-  cut edge against the sky. Plants are not drawn that far out; the meadows are
-  the ground's own colour.
+  data, with no small channels and no thickets. Plants are not drawn that far
+  out; the meadows are the ground's own colour.
+- The flowers are all in bloom at once, at every stage: there are no seasons.
 - Low evening sun puts the trench's east-facing banks, and the pockets behind
   them, in hard shadow. From the air these read as dark patches on the meadow.
-- The small channels are noise contours laid along the flow direction. They
-  look right from above but do not connect to real inflows.
 - The pre-incision surface is a simple fill, and banks retreat by distance
   from the channel's centre line, made ragged by a fixed pattern rather than by
   any model of where banks fail. Where today's valley is confined (no
@@ -239,13 +284,18 @@ the picture without blending over time.
 - Trees grow by scaling, and switch from the sapling picture to the mature one
   at about 9.5 m; that switch can pop. Tree shade between baked stages is a
   blend, so shadows fade in rather than lengthen.
-- Corn lily, sedge and rush are modelled from general knowledge of the plants,
-  not from specimens; the scanned flowers are not Sierra meadow species.
+- The plants built in code are modelled from general knowledge of each
+  species and from plant lists for Sierra Nevada meadows, not from specimens,
+  and where each grows is a rule of thumb (see the `FORBS` table).
 - Up close the needles are flat sprig pictures. Logs do not block walking.
 - The DEM ends at the watershed boundary; beyond it there is only sky.
-- At 1600x900 an RTX 4070 laptop GPU settles at 2x resolution and about 9 ms
-  a frame. Intel UHD integrated graphics settles at 0.62x and about 35 fps; the
-  ground shader is most of its cost. Not tested on a phone.
+- At 1600x900 an RTX 4070 laptop GPU settles at 2x resolution and about 8 ms
+  a frame. Intel UHD integrated graphics settles at 0.62x and about 32 fps,
+  with plants thinned to about 70% in the open meadow; the ground shader is
+  most of its cost. Not tested on a phone.
+- The page loads about 23 MB of data before it shows anything. The full
+  meshes for close-up trees (about 4 MB of it) are only needed on foot and
+  could be fetched later.
 
 ## Publishing
 

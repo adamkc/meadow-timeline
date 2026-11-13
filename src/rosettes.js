@@ -9,9 +9,11 @@
 import * as THREE from 'three';
 
 export const ROSETTES = {
-  cols: 4, rows: 2,
-  // per kind of plant (see KINDS in grass.js): first picture, how many, and the clump's width in metres
-  kinds: { sedge: [0, 2, 1.5], lush: [2, 1, 1.3], rush: [3, 1, 1.1], dry: [4, 1, 0.9], lily: [5, 1, 1.5], flower: [6, 1, 1.3], forb: [7, 1, 0.9] },
+  cols: 4, rows: 4,
+  // The sward (see SWARD in grass.js): first picture, how many, and the clump's width in metres.
+  // The wildflowers name their own picture in grass.js: 5 corn lily, 8 a clump
+  // in flower, 9 lupine, 10 mule's ears, 11 bracken, 12 yarrow, 13 snow plant.
+  sward: { sedge: [0, 2, 1.5], lush: [2, 1, 1.3], rush: [3, 1, 1.1], dry: [4, 1, 0.9] },
 };
 
 export function rosetteTexture() {
@@ -64,13 +66,58 @@ export function rosetteTexture() {
   blades(3, { count: 330, reach: [0.5, 0.85], width: 1.7, curl: 0.3, heart: 0.22 });                    // rush: stiff, fine, dark at heart
   blades(4, { count: 85, reach: [0.4, 0.9], width: 2.0, curl: 0.8, heart: 0.5, spread: 0.2 });          // dry bunchgrass, thin
   leaves(5, { count: 5, length: 0.95, breadth: 0.34, rings: 3, ribs: 3 });                              // corn lily
-  const [fx, fy, fr] = blades(6, { count: 130, reach: [0.4, 0.95], width: 2.2, curl: 2.0, heart: 0.42, spread: 0.3 }); // grass in flower
-  for (let i = 0; i < 22; i++) {
-    const a = rand() * 6.28, r = fr * Math.sqrt(rand()) * 0.9;
-    g.fillStyle = tone(1, 1);
-    g.beginPath(); g.arc(fx + Math.cos(a) * r, fy + Math.sin(a) * r, 3.2 + 2.2 * rand(), 0, 2 * Math.PI); g.fill();
-  }
   leaves(7, { count: 7, length: 0.7, breadth: 0.5, rings: 2, ribs: 1 });                                // a leafy forb
+  // Flower heads stand above the leaves, so from over them they cover far more than their share.
+  const heads = (cx, cy, R, count, size, spread = 0.85) => {
+    for (let i = 0; i < count; i++) {
+      const a = rand() * 6.28, r = R * Math.sqrt(rand()) * spread;
+      g.fillStyle = tone(0.75 + 0.25 * rand(), 1);
+      g.beginPath(); g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, size * (0.7 + 0.6 * rand()), 0, 2 * Math.PI); g.fill();
+    }
+  };
+  const centre = (cell) => [(cell % cols + 0.5) * S, (Math.floor(cell / cols) + 0.5) * S, S * 0.47];
+  blades(8, { count: 70, reach: [0.35, 0.9], width: 2.4, curl: 1.6, heart: 0.42, spread: 0.3 });        // a clump of some wildflower: a few leaves,
+  heads(...centre(8), 46, 6.5);                                                                          // and many flowers
+  { // lupine: hand-shaped leaves, and spikes seen end-on
+    const [cx, cy, R] = centre(9);
+    for (let i = 0; i < 11; i++) {
+      const a = rand() * 6.28, r = R * (0.25 + 0.6 * rand()), x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r, n = 9, spin = rand();
+      g.strokeStyle = tone(0.45 + 0.3 * rand()); g.lineWidth = 3.2;
+      for (let k = 0; k < n; k++) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(spin + k / n * 6.28) * R * 0.2, y + Math.sin(spin + k / n * 6.28) * R * 0.2); g.stroke(); }
+    }
+    heads(cx, cy, R, 7, 11, 0.6);
+  }
+  { // mule's ears: big plain leaves standing up and out, yellow heads among them
+    const [cx, cy, R] = centre(10);
+    for (let i = 0; i < 13; i++) {
+      const a = i * 2.4 + rand() * 0.5, len = R * (0.55 + 0.4 * rand());
+      g.save(); g.translate(cx, cy); g.rotate(a);
+      g.fillStyle = tone(0.55 + 0.3 * rand());
+      g.beginPath(); g.ellipse(len * 0.55, 0, len * 0.45, len * 0.16, 0, 0, 2 * Math.PI); g.fill();
+      g.strokeStyle = tone(0.4); g.lineWidth = 1.5; g.beginPath(); g.moveTo(len * 0.12, 0); g.lineTo(len * 0.98, 0); g.stroke();
+      g.restore();
+    }
+    heads(cx, cy, R, 4, 15, 0.45);
+  }
+  { // bracken: three-cornered fronds held out flat, cut into leaflets
+    const [cx, cy, R] = centre(11);
+    for (let f = 0; f < 4; f++) {
+      const a = f * 1.7 + rand() * 0.6, len = R * (0.75 + 0.25 * rand());
+      g.save(); g.translate(cx, cy); g.rotate(a);
+      g.strokeStyle = tone(0.4); g.lineWidth = 2; g.beginPath(); g.moveTo(0, 0); g.lineTo(len, 0); g.stroke();
+      for (let k = 0; k < 13; k++) {
+        const x = len * (0.16 + 0.82 * k / 13), reach = len * 0.5 * Math.pow(1 - k / 13, 0.8) + 3;
+        for (const sgn of [1, -1]) {
+          g.strokeStyle = tone(0.5 + 0.35 * rand()); g.lineWidth = Math.max(3, len * 0.062);
+          g.beginPath(); g.moveTo(x, 0); g.lineTo(x + reach * 0.25, sgn * reach); g.stroke();
+        }
+      }
+      g.restore();
+    }
+  }
+  blades(12, { count: 240, reach: [0.2, 0.75], width: 1.3, curl: 2.6, heart: 0.5, spread: 0.5 });       // yarrow: fine, feathery leaves,
+  heads(...centre(12), 9, 17, 0.6);                                                                      // and flat white clusters
+  { const [cx, cy] = centre(13); g.fillStyle = tone(0.9, 1); for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(cx + (rand() - 0.5) * 60, cy + (rand() - 0.5) * 60, 34 + 14 * rand(), 0, 2 * Math.PI); g.fill(); } } // snow plant: red spikes, nothing else
 
   // Outside the clump the picture is transparent, and would be black: the
   // small mipmaps would then darken every clump's edge. Give it the blades' middle tone.

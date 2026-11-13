@@ -41,17 +41,27 @@ const ditherShift = { value: 0 };
 const post = createPost(renderer, { bloom: num('bloom', 0.07), adapt: num('adapt', 1), grain: num('grain', 1), blend: num('blend', 0.9), sharpen: num('sharpen', 0.5), ditherShift });
 
 // ---- data ---------------------------------------------------------------
+const loading = { asked: 0, done: 0 };
 async function get(name) {
+  loading.asked++;
   const r = await fetch(DATA + name);
+  veil.textContent = `Loading the meadow… ${++loading.done} of ${Math.max(loading.asked, 58)} files`;
   if (!r.ok) fail(`Could not load ${name} (${r.status}). Run tools/prep_terrain.py first.`);
   return r;
 }
-async function getHeights(name, count) {
-  const raw = new Uint16Array(await (await get(name)).arrayBuffer());
-  if (raw.length !== count) fail(`${name} has ${raw.length} samples, expected ${count}.`);
-  const out = new Float32Array(count);
-  for (let i = 0; i < count; i++) out[i] = raw[i] * meta.zscale; // metres above meta.zmin
-  return out;
+// A file that was gzipped when it was built (tools/prep_terrain.py, save_gz).
+// If the server has already unpacked it on the way, it is used as it comes.
+async function unpacked(name) {
+  const bytes = new Uint8Array(await (await get(name)).arrayBuffer());
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes.buffer;
+  return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+}
+// A 16-bit grid stored as each sample's difference from the one to its left.
+async function getGrid16(name, w, h) {
+  const d = new Uint16Array(await unpacked(name));
+  if (d.length !== w * h) fail(`${name} has ${d.length} samples, expected ${w * h}. Re-run tools/prep_terrain.py.`);
+  for (let y = 0, i = 0; y < h; y++) { i++; for (let x = 1; x < w; x++, i++) d[i] += d[i - 1]; }
+  return d;
 }
 // An image as raw RGBA bytes, for data that is needed on the CPU or repacked.
 async function pixels(name) {
@@ -87,27 +97,29 @@ function bytesTexture(data, w, h) {
   return t;
 }
 async function loadLevel(name, w, h) {
-  const [surveyed, healed, arriveIn, cut, thread, bakeIn, aux, site, lit, cover, water, waterHealed] = await Promise.all([
-    getHeights(`${name}_h.bin`, w * h), getHeights(`${name}_h_healed.bin`, w * h),
-    get(`${name}_arrive.bin`).then((r) => r.arrayBuffer()).then((b) => new Uint16Array(b)),
-    pixels(`${name}_cut.png`), pixels(`${name}_thread.png`), pixels(`${name}_bake.png`), pixels(`${name}_aux.png`), pixels(`${name}_site.png`),
+  const [heightsIn, healedBy, arriveIn, cut, thread, bakeIn, aux, site, lit, cover, water, waterHealed] = await Promise.all([
+    getGrid16(`${name}_h.bin.gz`, w, h), unpacked(`${name}_dh.bin.gz`).then((b) => new Int16Array(b)),
+    getGrid16(`${name}_arrive.bin.gz`, w, h),
+    pixels(`${name}_cut.webp`), pixels(`${name}_thread.webp`), pixels(`${name}_bake.webp`), pixels(`${name}_aux.webp`), pixels(`${name}_site.webp`),
     pixels(`${name}_stage_lit.webp`), pixels(`${name}_stage_cover.webp`),
-    dataImage(`${name}_water.png`), dataImage(`${name}_water_healed.png`),
+    dataImage(`${name}_water.webp`), dataImage(`${name}_water_healed.webp`),
   ]);
   const count = w * h;
+  if (healedBy.length !== count) fail(`${name}_dh.bin.gz has ${healedBy.length} samples, expected ${count}. Re-run tools/prep_terrain.py.`);
+  const surveyed = new Float32Array(count), healed = new Float32Array(count); // metres above meta.zmin
+  for (let i = 0; i < count; i++) { surveyed[i] = heightsIn[i] * meta.zscale; healed[i] = (heightsIn[i] + healedBy[i]) * meta.zscale; }
   const fill = new Float32Array(count), dist = new Float32Array(count), arrive = new Float32Array(count), threads = new Float32Array(count);
-  if (arriveIn.length !== count) fail(`${name}_arrive.bin has ${arriveIn.length} samples, expected ${count}. Re-run tools/prep_terrain.py.`);
   // The channel texture holds half floats: when the headcut arrives needs far
   // more than 8 bits, or the headcut would climb the channel in jumps.
   const packed = new Float32Array(count * 4), chan = new Uint16Array(count * 4), bake = new Uint8Array(count * 4), zone = new Uint8Array(count * 4);
   const halfOfByte = Uint16Array.from({ length: 256 }, (_, v) => THREE.DataUtils.toHalfFloat(v / 255));
   for (let i = 0, k = 0; i < count; i++, k += 4) {
     fill[i] = cut.data[k] / 255 * meta.fillMax;
-    arrive[i] = arriveIn[i] / 65535;
+    arrive[i] = arriveIn[i] / 65520;
     dist[i] = cut.data[k + 2] / 255 * meta.channelDistMax;
     threads[i] = (thread.data[k] / 255 - 0.5) * 8;                                     // metres inside a thread's edge
     packed[k] = surveyed[i]; packed[k + 1] = healed[i] - surveyed[i]; packed[k + 2] = fill[i]; packed[k + 3] = dist[i];
-    chan[k] = THREE.DataUtils.toHalfFloat(arrive[i]); chan[k + 1] = halfOfByte[thread.data[k]]; chan[k + 2] = halfOfByte[aux.data[k + 1]]; chan[k + 3] = halfOfByte[255];
+    chan[k] = THREE.DataUtils.toHalfFloat(arrive[i]); chan[k + 1] = halfOfByte[thread.data[k]]; chan[k + 2] = halfOfByte[aux.data[k + 1]]; chan[k + 3] = halfOfByte[cut.data[k + 1]]; // alpha: 0 at the edge of the data, 1 well inside
     bake[k] = bakeIn.data[k]; bake[k + 1] = bakeIn.data[k + 1]; bake[k + 2] = site.data[k + 1]; bake[k + 3] = site.data[k + 2];
     zone[k] = aux.data[k + 2]; zone[k + 1] = bakeIn.data[k + 2]; zone[k + 2] = site.data[k]; zone[k + 3] = aux.data[k];
   }
@@ -130,8 +142,27 @@ async function loadLevel(name, w, h) {
   return { surveyed, healed, fill, dist, arrive, threads, heights, chan: chanTexture, bake: bytesTexture(bake, w, h),
     zone: bytesTexture(zone, w, h), stages, water, waterHealed, w, h };
 }
+// The trees come a column at a time, positions as differences from the tree
+// before (tools/prep_terrain.py); the rest of the scene wants 12-byte records.
+async function getTrees() {
+  // Stored per tree: x and z (2 bytes each), then one byte each of full height,
+  // germination, death, and its sapling, grown and dead pictures, and whether it
+  // stands on a road's line. Its seed (byte 7 of the record) is made here.
+  const packed = new Uint8Array(await unpacked('trees.bin.gz')), REC = meta.trees.bytes, n = packed.length / 11;
+  if (!Number.isInteger(n) || REC !== 12) fail('trees.bin.gz is not a whole number of trees. Re-run tools/prep_terrain.py.');
+  const out = new DataView(new ArrayBuffer(n * REC)), xz = new Uint16Array(packed.buffer, 0, 2 * n);
+  const FROM = [4, 5, 6, 8, 9, 10, 11]; // where each stored byte goes in the record
+  let x = 0, z = 0;
+  for (let i = 0; i < n; i++) {
+    x = (x + xz[i]) & 65535; z = (z + xz[n + i]) & 65535;
+    out.setUint16(i * REC, x, true); out.setUint16(i * REC + 2, z, true);
+    for (let k = 0; k < 7; k++) out.setUint8(i * REC + FROM[k], packed[(4 + k) * n + i]);
+    out.setUint8(i * REC + 7, (Math.imul(x, 73856093) ^ Math.imul(z, 19349663)) >>> 13 & 255);
+  }
+  return out.buffer;
+}
 const [coreData, farData, treeBuffer] = await Promise.all([
-  loadLevel('core', N, N), loadLevel('far', FW, FH), get('trees.bin').then((r) => r.arrayBuffer()),
+  loadLevel('core', N, N), loadLevel('far', FW, FH), getTrees(),
 ]);
 
 // World frame: x east, y up (metres above zmin), z south; origin at the
@@ -160,6 +191,7 @@ const shared = {
   uKeys: { value: new THREE.Vector2(meta.stages.keys[0], meta.stages.keys.length - 1) },
   uGrow: { value: new THREE.Vector3(meta.trees.growSpan, meta.trees.growPow, meta.trees.switchHeight) },
   uTime: { value: 0 },
+  uWide: { value: 0 },
   uDitherShift: ditherShift,
   uNoise: { value: noiseTexture() },
   uCoreRect: { value: new THREE.Vector4(coreOrigin.x, coreOrigin.y, coreOrigin.x + N, coreOrigin.y + N) },
@@ -177,12 +209,12 @@ const CUT = meta.stages.cut, WIDEN = meta.stages.widen;
 function removedAt(d, arrive) {
   const t = shared.uStage.value, t0 = CUT[0] + CUT[1] * arrive;
   const q = Math.min(1, Math.max(0, (t - t0 - 0.7 * CUT[2]) / WIDEN[0]));
-  const w = WIDEN[1] + (80 - WIDEN[1]) * q * Math.sqrt(q);
-  return smoothstep(t0, t0 + CUT[2], t) * (1 - smoothstep(w, w + 2.5, d));
+  const w = WIDEN[1] + (80 - WIDEN[1]) * q * q;
+  return smoothstep(t0, t0 + CUT[2], t) * (1 - smoothstep(w, w + 1.6, d));
 }
 function threadCarve(sdf, arrive) {
   const t0 = CUT[0] + CUT[1] * arrive;
-  return 0.3 * smoothstep(-1.8, 0.5, sdf) * (1 - smoothstep(t0 + 0.5, t0 + 2.0, shared.uStage.value));
+  return 0.3 * smoothstep(-1.8, 0.5, sdf) * (1 - smoothstep(t0 + 2.5, t0 + 5.0, shared.uStage.value));
 }
 // Height of the ground now. `rooted` gives the ground as it ends up, with no
 // fill and no meadow channels: what trees and logs stand on.
@@ -194,8 +226,8 @@ function groundAt(x, z, rooted = false) {
   let y = s + (shared.uHeal.value > 0 ? (bilinear(L.healed, L.w, L.h, fx, fz) - s) * shared.uHeal.value : 0);
   if (!rooted) {
     const arrive = bilinear(L.arrive, L.w, L.h, fx, fz);
-    y += (1 - removedAt(bilinear(L.dist, L.w, L.h, fx, fz), arrive)) * bilinear(L.fill, L.w, L.h, fx, fz)
-       - threadCarve(bilinear(L.threads, L.w, L.h, fx, fz), arrive);
+    y += (1 - removedAt(bilinear(L.dist, L.w, L.h, fx, fz), arrive))
+       * (bilinear(L.fill, L.w, L.h, fx, fz) - threadCarve(bilinear(L.threads, L.w, L.h, fx, fz), arrive));
   }
   return y;
 }
@@ -366,7 +398,7 @@ if (params.get('trees') !== '0') {
       };
       const atlases = [...new Set(index.trees.map((t) => t.atlas))];
       const [buffer, woodTextures, sprigs] = await Promise.all([
-        get('near_trees.bin').then((r) => r.arrayBuffer()),
+        unpacked('near_trees.bin.gz'),
         Promise.all(index.wood.map(colour)), Promise.all(atlases.map(colour)),
       ]);
       near = { index, buffer, woodTextures, sprigTextures: Object.fromEntries(atlases.map((a, i) => [a, sprigs[i]])) };
@@ -483,13 +515,13 @@ const lookTo = standAt && params.has('look') ? params.get('look').split(',').map
 if (still) veil.style.transition = 'none';
 // The timeline. Each stage has a name and a line of explanation (shown in the panel).
 const STAGES = [
-  ['Wet meadow', 'Water spreads across the valley floor through many small channels. The water table is at the surface, under sedges and rushes.'],
-  ['One channel cuts down', 'A single channel captures the flow and cuts a narrow trench, working its way upstream. The small channels go dry.'],
-  ['The trench widens', 'Its banks fail and retreat. The meadow is now a terrace above the stream, drying from its edges inward, while a new floodplain forms inside the trench.'],
-  ['Conifers move in', 'Seedlings follow the drying front in from the forest edge. Corn lily and grasses hold the ground that is still moist.'],
-  ['Thickets', 'Young pines close ranks on the dried ground. Meadow plants hang on near the stream.'],
+  ['Wet meadow', 'Water spreads across the valley floor through many small sandy channels. The water table is at the surface, under sedges and rushes, with willows along the channels and camas, shooting star and bistort in flower.'],
+  ['One channel cuts down', 'A headcut works its way up the meadow and leaves a raw gully behind it. The gully takes all the flow, and the small channels above it go dry.'],
+  ['The trench widens', 'Its banks fail and retreat. The meadow is now a terrace above the stream, drying from its edges inward. The old channels are left as dry sand.'],
+  ['Conifers move in', 'Pine seedlings follow the drying front in from the forest edge. Corn lily, lupine and yarrow hold the ground that is still moist, and a new floodplain greens inside the trench.'],
+  ['Thickets', 'Young pines close ranks on the dried ground, with mule\u2019s ears in the last openings. Meadow plants hang on near the stream.'],
   ['Closed stand', 'The thicket shades out its own understory and thins itself: standing dead poles, downed wood, bare litter.'],
-  ['Mature forest', 'A closed canopy over an open floor where the meadow was. Wet meadow survives only on the new floodplain inside the trench.'],
+  ['Mature forest', 'A closed canopy over a floor of needle litter and bracken fern where the meadow was. Wet meadow survives only on the new floodplain inside the trench.'],
 ];
 const LAST = STAGES.length - 1;
 const state = {
@@ -647,6 +679,7 @@ const tmp = new THREE.Vector3(), ahead = new THREE.Vector3();
 
 function updateTour(dt) {
   state.wide = approach(state.wide, state.wideTarget, dt / 6); // six seconds out, six back
+  shared.uWide.value = wideOf(state.wide);
   if (!still) state.u += dt / (TOUR === 'orbit' ? orbit.period + (land.period - orbit.period) * wideOf(state.wide) : pathLength / FLY_SPEED);
   if (TOUR === 'stream' && state.u >= 1) { // loop back to the start
     state.u = 0;
@@ -674,6 +707,7 @@ function updateTour(dt) {
 }
 
 function updateWalk(dt) {
+  shared.uWide.value = 0;
   const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
   const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
   // Pushing through young trees is slow going.
@@ -845,6 +879,6 @@ function draw(now) {
       + ` · ${scale.toFixed(2)}x resolution (${renderer.domElement.width} x ${renderer.domElement.height} shown)` + ` · plants ${Math.round(detailShown * 100)}%`;
   }
   window.__meadow.frames = ++frames;
-  if (frames === 2) { veil.style.opacity = 0; document.body.dataset.ready = '1'; }
+  if (frames === 2) { veil.textContent = ''; veil.style.opacity = 0; document.body.dataset.ready = '1'; }
 }
 requestAnimationFrame(frame);

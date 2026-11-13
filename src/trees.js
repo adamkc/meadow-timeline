@@ -19,6 +19,7 @@ ${COMMON_GLSL}
 #define TYPES ${types}
 #define VIEWS ${views}.0
 uniform sampler2D uBake;
+uniform sampler2D uChan;      // alpha: 0 at the edge of the data, 1 well inside
 uniform sampler2DArray uStages;
 uniform vec2 uOrigin;
 uniform vec2 uExtent;
@@ -35,6 +36,7 @@ varying vec2 vUv;
 varying vec4 vView;           // the two nearest baked views, blend between them, tree type
 varying float vDensity;
 varying float vFade;
+varying float vEdge;
 
 void main() {
   float what;
@@ -44,8 +46,10 @@ void main() {
   float onRoad = step(32768.0, packed);
   packed -= onRoad * 32768.0;
   float standing = mix(1.0, smoothstep(0.35, 0.9, uHeal), onRoad);
-  h *= standing;
-  if (what < 0.5 || standing <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  // Toward the edge of the data the forest thins and dissolves into the sky with the ground.
+  vEdge = smoothstep(0.0, 1.0, texture2D(uChan, (aTree.xz - uOrigin) / uExtent).a);
+  h *= standing * smoothstep(0.0, 0.35, vEdge);
+  if (what < 0.5 || standing <= 0.0 || vEdge < 0.02) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   int type = int(what > 2.5 ? floor(packed / 1024.0) : what > 1.5 ? mod(floor(packed / 32.0), 32.0) : mod(packed, 32.0));
   vec4 frame = uFrame[type];
   vec3 base = aTree.xyz;
@@ -99,6 +103,7 @@ varying vec2 vUv;
 varying vec4 vView;
 varying float vDensity;
 varying float vFade;
+varying float vEdge;
 
 // One baked view of the tree: colour and coverage, its shading, and the normal in world space.
 void bakedView(float k, vec2 inCell, vec2 dx, vec2 dy, out vec4 a, out vec4 b, out vec3 N) {
@@ -144,7 +149,9 @@ void main() {
   float direct = b.z * (0.4 + 0.6 * abs(dot(N, uSunDir))) + 0.2 * through * b.a;
   vec3 light = uSunColor * direct * neighbours
              + mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5) * b.a * vLight.z;
-  gl_FragColor = vec4(applyFog(a.rgb * vTint * light, vWorld), alpha);
+  vec3 seen = applyFog(a.rgb * vTint * light, vWorld);
+  if (vEdge < 0.995) seen = mix(skyColor(rd, 0.0), seen, vEdge);
+  gl_FragColor = vec4(seen, alpha);
 }
 `;
 
@@ -169,7 +176,7 @@ export function createTrees({ buffer, life, cards, cardA, cardB, near, levels, f
   const materials = levels.map((level) => new THREE.ShaderMaterial({
     uniforms: {
       ...shared,
-      uBake: { value: level.bake }, uStages: { value: level.stages },
+      uBake: { value: level.bake }, uChan: { value: level.chan }, uStages: { value: level.stages },
       uOrigin: { value: level.origin }, uExtent: { value: level.extent },
       uFrame: { value: frames }, uBounds: { value: types.map((t) => new THREE.Vector4(...t.bounds)) },
       uCardA: { value: cardA }, uCardB: { value: cardB },

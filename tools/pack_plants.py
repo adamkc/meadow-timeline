@@ -5,9 +5,9 @@
                      plant's own shading (sky visibility) multiplied in
   data/plants.json   per cell: kind, real width and height in metres, average colour
 
-Kinds: lush and dry meadow grass, flower (small, coloured), forb (tall, leafy),
-and three built from scratch rather than scanned: sedge, rush and corn lily.
-The scans are of lawn-sized plants; the size multiplier brings them to meadow size.
+Kinds: lush and dry meadow grass (scans), and plants built from scratch:
+sedge, rush, corn lily and a set of Sierra Nevada wildflowers and understory
+plants.
 
   /usr/bin/python3 tools/pack_plants.py
 """
@@ -20,18 +20,27 @@ from scipy import ndimage as ndi
 
 BAKE = os.path.expanduser("~/.cache/meadow_render/bake")
 OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
-CELL, GRID = 512, 5
+CELL, GRID = 512, 6
 # bake name, kind, size multiplier, which of its plants to use as (plant, view)
 SOURCES = [
     ("plant_grass_lush", "lush", 1.0, [(0, 0), (2, 0), (1, 0)]),
     ("plant_grass_dry", "dry", 1.0, [(0, 0), (1, 0), (1, 1)]),
-    ("plant_dandelion", "flower", 2.4, [(0, 0)]),
-    ("plant_periwinkle", "flower", 1.8, [(1, 0)]),
-    ("plant_shrub", "forb", 2.6, [(1, 0), (8, 0)]),
-    # Built from scratch (tools/proc_plants.js), not scanned:
+    # Everything below is built from scratch (tools/proc_plants.js), not scanned.
     ("plant_sedge", "sedge", 0.75, [(0, 0), (1, 0), (2, 0)]),
     ("plant_rush", "rush", 0.8, [(0, 0), (1, 0)]),
     ("plant_cornlily", "lily", 1.0, [(0, 0), (1, 1), (3, 0), (2, 0)]),   # three leafy stems and one in flower
+    # Sierra Nevada wildflowers, in the order of the species table in src/grass.js.
+    ("plant_camas", "camas", 1.0, [(0, 0), (1, 0)]),
+    ("plant_shootingstar", "shootingstar", 1.0, [(1, 0), (2, 0)]),
+    ("plant_bistort", "bistort", 1.0, [(0, 0), (1, 0)]),
+    ("plant_elephantshead", "elephantshead", 1.0, [(0, 0), (2, 0)]),
+    ("plant_sneezeweed", "sneezeweed", 1.0, [(0, 0), (1, 0)]),
+    ("plant_lupine", "lupine", 1.0, [(0, 0), (1, 0)]),
+    ("plant_yarrow", "yarrow", 1.0, [(0, 0), (1, 0)]),
+    ("plant_mulesears", "mulesears", 1.0, [(0, 0), (1, 0)]),
+    ("plant_paintbrush", "paintbrush", 1.0, [(0, 0)]),
+    ("plant_bracken", "bracken", 1.0, [(0, 0), (1, 0), (2, 0)]),
+    ("plant_snowplant", "snowplant", 1.0, [(0, 0)]),
 ]
 
 cells, index = [], []
@@ -75,11 +84,11 @@ for name, kind, scale, picked in SOURCES:
 assert len(cells) <= GRID * GRID
 cells += [np.zeros((CELL, CELL, 4), "f4")] * (GRID * GRID - len(cells))
 atlas = np.vstack([np.hstack(cells[r * GRID:(r + 1) * GRID]) for r in range(GRID)])
-Image.fromarray(np.clip(np.rint(atlas * 255), 0, 255).astype("u1"), "RGBA").save(f"{OUT}/plants.webp", quality=90, method=6, exact=True)
+Image.fromarray(np.clip(np.rint(atlas * 255), 0, 255).astype("u1"), "RGBA").save(f"{OUT}/plants.webp", quality=84, alpha_quality=90, method=6, exact=True)
 kinds = {}
 for i, p in enumerate(index):
     kinds.setdefault(p["kind"], [i, 0])[1] += 1   # first picture and how many, per kind
 json.dump({"grid": GRID, "cell": CELL, "plants": index, "kinds": kinds,
-           "source": "Poly Haven (CC0): grass_medium_01, grass_medium_02, dandelion_01, periwinkle_plant, shrub_01; sedge, rush and corn lily built in tools/proc_plants.js"},
+           "source": "Poly Haven (CC0): grass_medium_01, grass_medium_02; all others built in tools/proc_plants.js"},
           open(f"{OUT}/plants.json", "w"), indent=1)
 print(f"plants.webp: {atlas.shape[1]}x{atlas.shape[0]}, {os.path.getsize(f'{OUT}/plants.webp') / 1e6:.2f} MB")

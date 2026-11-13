@@ -85,8 +85,8 @@ def layout(cells):
 atlas_a, atlas_b = layout(rows_a), layout(rows_b)
 # Normals and shading vary slowly; half the size is plenty and saves memory.
 atlas_b = np.array(Image.fromarray(atlas_b, "RGBA").resize((atlas_b.shape[1] // 2, atlas_b.shape[0] // 2), Image.BOX))
-Image.fromarray(atlas_a, "RGBA").save(f"{OUT}/cards_a.webp", quality=90, method=6, exact=True)
-Image.fromarray(atlas_b, "RGBA").save(f"{OUT}/cards_b.webp", quality=92, method=6, exact=True)
+Image.fromarray(atlas_a, "RGBA").save(f"{OUT}/cards_a.webp", quality=80, alpha_quality=85, method=6, exact=True)
+Image.fromarray(atlas_b, "RGBA").save(f"{OUT}/cards_b.webp", quality=76, alpha_quality=80, method=6, exact=True)
 views = VIEWS
 json.dump({"views": views, "columns": COLUMNS, "rows": ROWS, "cell": [atlas_a.shape[1] // views // COLUMNS, atlas_a.shape[0] // ROWS],
            "trees": trees, "source": "Poly Haven (CC0): fir_tree_01, pine_tree_01, fir_sapling_medium, pine_sapling_medium; willow built in tools/proc_plants.js"},
