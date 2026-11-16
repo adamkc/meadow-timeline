@@ -17,7 +17,7 @@ for (const [k, v] of Object.entries(r.cases)) console.log(`${k.padEnd(32)} ${dB(
 console.log('each layer alone, at full:');
 for (const [k, v] of Object.entries(r.solo)) console.log(`  ${k.padEnd(14)} ${dB(v.rms)} RMS  ${dB(v.peak)} peak`);
 mkdirSync('out/sound', { recursive: true });
-for (const name of Object.keys(r.cases)) {
+for (const name of [...Object.keys(r.cases), ...(r.extra ?? [])]) {
   const n = r.sampleRate * 24, parts = [];
   for (let s = 0; s < n; s += 200000) parts.push(Buffer.from(await page.evaluate((a, b, c) => window.__chunk(a, b, c), name, s, Math.min(200000, n - s)), 'base64'));
   const data = Buffer.concat(parts), head = Buffer.alloc(44);

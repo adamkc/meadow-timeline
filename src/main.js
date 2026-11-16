@@ -191,7 +191,7 @@ const shared = {
   uHeal: { value: 1 },   // roads are left out unless asked for (H)
   uStage: { value: 0 },
   uCut: { value: new THREE.Vector3(...meta.stages.cut) },
-  uWiden: { value: new THREE.Vector2(...meta.stages.widen) },
+  uWiden: { value: new THREE.Vector3(...meta.stages.widen) },
   uDry: { value: new THREE.Vector2(...meta.stages.dry) },
   uKeys: { value: new THREE.Vector2(meta.stages.keys[0], meta.stages.keys.length - 1) },
   uGrow: { value: new THREE.Vector3(meta.trees.growSpan, meta.trees.growPow, meta.trees.switchHeight) },
@@ -214,22 +214,24 @@ const CUT = meta.stages.cut, WIDEN = meta.stages.widen;
 function removedAt(d, arrive) {
   const t = shared.uStage.value, t0 = CUT[0] + CUT[1] * arrive;
   const q = Math.min(1, Math.max(0, (t - t0 - 0.7 * CUT[2]) / WIDEN[0]));
-  const w = WIDEN[1] + (80 - WIDEN[1]) * q * q;
+  const w = WIDEN[1] + (WIDEN[2] - WIDEN[1]) * q * q;
   return smoothstep(t0, t0 + CUT[2], t) * (1 - smoothstep(w, w + 1.6, d));
 }
 function threadCarve(sdf, arrive) {
   const t0 = CUT[0] + CUT[1] * arrive;
   return 0.3 * smoothstep(-1.8, 0.5, sdf) * (1 - smoothstep(t0 + 2.5, t0 + 5.0, shared.uStage.value));
 }
-// Height of the ground now. `rooted` gives the ground as it ends up, with no
-// fill and no meadow channels: what trees and logs stand on.
+// Height of the ground now. `rooted` gives the ground as it ends up, once the
+// trench is as wide as it will get and the meadow's small channels are gone:
+// what trees and logs stand on.
 function groundAt(x, z, rooted = false) {
   const cx = x - coreOrigin.x, cz = z - coreOrigin.y;
   const L = cx >= 0 && cx <= N && cz >= 0 && cz <= N ? core : far;
   const fx = (x - L.origin.x) / L.cell, fz = (z - L.origin.y) / L.cell;
   const s = bilinear(L.surveyed, L.w, L.h, fx, fz);
   let y = s + (shared.uHeal.value > 0 ? (bilinear(L.healed, L.w, L.h, fx, fz) - s) * shared.uHeal.value : 0);
-  if (!rooted) {
+  if (rooted) y += smoothstep(WIDEN[2], WIDEN[2] + 1.6, bilinear(L.dist, L.w, L.h, fx, fz)) * bilinear(L.fill, L.w, L.h, fx, fz);
+  else {
     const arrive = bilinear(L.arrive, L.w, L.h, fx, fz);
     y += (1 - removedAt(bilinear(L.dist, L.w, L.h, fx, fz), arrive))
        * (bilinear(L.fill, L.w, L.h, fx, fz) - threadCarve(bilinear(L.threads, L.w, L.h, fx, fz), arrive));
@@ -593,7 +595,9 @@ const state = {
   stage: Math.min(LAST, Math.max(0, num('stage', 0))),
   stageTarget: Math.min(LAST, Math.max(0, num('stage', 0))),
   playing: false,
-  view: Math.max(0, VIEWS.findIndex((v) => v.key === params.get('view'))),   // which viewpoint (keys 1 to 6)
+  // Which viewpoint (keys 1 to 6). A visit starts under the old trees, where the change is most striking;
+  // a fixed frame (?u=) with no view named is the circling view, as it always was.
+  view: Math.max(0, VIEWS.findIndex((v) => v.key === (params.get('view') ?? (params.has('u') ? 'meadow' : 'canopy')))),
   ease: 1,                      // walking speed factor: 1 in the open, less among young trees
 };
 function applyTimeline() {
@@ -878,7 +882,7 @@ statsEl.hidden = !statsShown;
 // ---- sound -----------------------------------------------------------------------
 // The sound follows the place and the stage (sound.js). Browsers let it start
 // only on a click or a key, so it starts with the visitor's first one.
-const sound = params.get('sound') === '0' ? null : createSound();
+const sound = params.get('sound') === '0' ? null : createSound({ hush: (params.get('hush') ?? '').split(',').filter(Boolean) });
 const muteButton = document.getElementById('mute');
 function showMute() { muteButton.textContent = sound && !sound.muted ? 'Sound on' : 'Sound off'; muteButton.classList.toggle('off', !sound || sound.muted); }
 if (sound) {
@@ -1036,7 +1040,8 @@ function draw(now) {
   if (statsShown && now > statsAt) {
     statsAt = now + 500;
     statsEl.textContent = `${gpuName} · ${Math.round(1000 / frameMs)} fps` + (gpu.known ? ` · ${gpu.ms.toFixed(1)} ms on the GPU` : '')
-      + ` · ${scale.toFixed(2)}x resolution (${renderer.domElement.width} x ${renderer.domElement.height} shown)` + ` · plants ${Math.round(detailShown * 100)}%`;
+      + ` · ${scale.toFixed(2)}x resolution (${renderer.domElement.width} x ${renderer.domElement.height} shown)` + ` · plants ${Math.round(detailShown * 100)}%`
+      + (sound && !sound.muted && sound.describe() ? ` · sound: ${sound.describe()}` : '');
   }
   window.__meadow.frames = ++frames;
   if (frames === 2) { loading.shown = true; veil.textContent = ''; veil.style.opacity = 0; document.body.dataset.ready = '1'; document.getElementById('begin').disabled = false; }

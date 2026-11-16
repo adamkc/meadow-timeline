@@ -20,7 +20,7 @@
            transition: opacity .6s ease; overflow-y: auto; }
   body:not(.waiting) #start { opacity: 0; pointer-events: none; }
   #start[hidden] { display: none; }
-  body.instant canvas, body.instant #timeline, body.instant #mute { transition: none; }   /* fixed frames and tests: no fade in */
+  body.instant canvas, body.instant #timeline, body.instant #mute, body.instant #views, body.instant #guide-button { transition: none; }   /* fixed frames and tests: no fade in */
   #start > div { max-width: 560px; text-align: center; }
   #start h1 { margin: 0 0 10px; font-size: clamp(28px, 5vw, 44px); font-weight: 650; letter-spacing: -.01em; text-wrap: balance; }
   #start p { margin: 0 auto 22px; max-width: 46ch; font-size: 16px; line-height: 1.5; opacity: .92; text-wrap: pretty; }
@@ -76,8 +76,11 @@
   #play { flex: none; width: 64px; margin-top: -7px; padding: 5px 0; border: 1px solid rgba(255, 255, 255, .55); border-radius: 6px;
           background: rgba(255, 255, 255, .1); color: inherit; font: inherit; cursor: pointer; }
   #play:hover, #play:focus-visible { background: rgba(255, 255, 255, .22); outline: none; }
-  /* The viewpoints: a column at the right, above the timeline. */
-  #views { position: absolute; right: 28px; bottom: 100%; margin-bottom: -28px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+  /* The viewpoints: a column at the right, under the buttons. Fixed to the window, not to the timeline
+     panel, whose height changes with the length of each stage's caption. */
+  #views { position: fixed; right: 12px; top: 44px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; color: #fff;
+           text-shadow: 0 1px 3px rgba(0, 0, 0, .7); transition: opacity .9s ease; }
+  body.waiting #views { opacity: 0; pointer-events: none; }
   #views button { padding: 4px 10px; border: 1px solid rgba(255, 255, 255, .3); border-radius: 6px; background: rgba(8, 12, 10, .38); color: inherit;
                   font: inherit; font-size: 12px; text-align: left; cursor: pointer; text-shadow: inherit; opacity: .8; }
   #views button b { display: inline-block; width: 1.1em; font-weight: 600; opacity: .7; }
@@ -97,7 +100,6 @@
   #hud b { font-weight: 600; }
   @media (max-width: 860px) {            /* narrow screens: only the current stage is named */
     #timeline { padding: 30px 14px 10px; }
-    #views { right: 14px; }
     #views button { font-size: 0; padding: 4px 8px; }           /* narrow screens: just the numbers */
     #views button b { font-size: 12px; width: auto; }
     #scale { margin: 0 10px; }
@@ -112,7 +114,6 @@
 <canvas id="view"></canvas>
 <div id="veil">Loading the meadow…</div>
 <div id="timeline">
-  <div id="views"></div>
   <h1 id="stage-title"></h1>
   <p id="stage-text"></p>
   <div id="row">
@@ -124,6 +125,7 @@
   </div>
   <div id="hud"></div>
 </div>
+<div id="views"></div>
 <button id="guide-button" type="button">Field guide</button>
 <button id="mute" type="button">Sound on</button>
 <aside id="guide" hidden aria-label="Field guide">

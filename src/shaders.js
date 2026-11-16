@@ -14,7 +14,7 @@ uniform float uFogBase;
 uniform float uHeal;     // 0 surveyed terrain, 1 roads healed
 uniform float uStage;    // the timeline: 0 intact wet meadow .. 6 mature forest
 uniform vec3 uCut;       // the headcut: stage it sets off, stages it takes to cross the window, stages a spot takes to cut to full depth
-uniform vec2 uWiden;     // then the banks retreat: stages that takes, and the half-width of the first slot (m)
+uniform vec3 uWiden;     // then the banks retreat: stages that takes, the half-width of the first gully and of the trench at its widest (m)
 uniform vec2 uDry;       // drying: stages the front takes from the meadow's edge to the channel, stages a spot takes to dry
 uniform vec2 uKeys;      // tree shade is baked from this stage on, one layer per stage; index of the last layer
 uniform vec3 uGrow;      // trees: stages to full height, shape of the growth curve, height at which a sapling becomes a tree
@@ -70,7 +70,7 @@ float sunShadow(float encoded) {
 // ---- the timeline ------------------------------------------------------------
 // The story follows the stream evolution models: water spread through many
 // small channels; one channel captures the flow and cuts a narrow trench; the
-// trench's banks retreat; the meadow, now a terrace, dries from its edges
+// trench's banks retreat (as far as uWiden.z, no farther); the meadow, now a terrace, dries from its edges
 // inward. The cutting is done by headcuts: a step in the bed that enters each
 // incised reach at its downstream end and climbs it. \`arrive\` is when the
 // headcut reaches a spot, 0..1 over the time the headcuts are on the move.
@@ -85,7 +85,7 @@ float incised(float arrive) {
 // (The fill never reaches farther than 75 m from a channel.)
 float trenchWidth(float arrive) {
   float q = clamp((uStage - cutStart(arrive) - 0.7 * uCut.z) / uWiden.x, 0.0, 1.0);
-  return uWiden.y + (80.0 - uWiden.y) * q * q;   // a gully for a while, then it opens out
+  return uWiden.y + (uWiden.z - uWiden.y) * q * q;   // a gully for a while, then it opens out
 }
 // Share of the pre-incision fill that is gone, d metres from the centre line.
 float removed(float d, float arrive) {
@@ -99,9 +99,10 @@ float removed(float d, float arrive) {
 // Only where the ground really dropped: toward the trench's outer edge the
 // fill thins to nothing.
 float freshBank(float d, float fill, float arrive) {
-  float passed = sqrt(clamp((d - uWiden.y) / (80.0 - uWiden.y), 0.0, 1.0));     // inverse of trenchWidth
+  float passed = sqrt(clamp((d - uWiden.y) / (uWiden.z - uWiden.y), 0.0, 1.0)); // inverse of trenchWidth
   float since = uStage - (cutStart(arrive) + 0.7 * uCut.z + passed * uWiden.x); // stages since the bank passed this spot
-  return smoothstep(0.35, 0.9, fill) * smoothstep(-0.02, 0.03, since) * (1.0 - smoothstep(1.1, 2.6, since));
+  return smoothstep(0.35, 0.9, fill) * smoothstep(-0.02, 0.03, since) * (1.0 - smoothstep(1.1, 2.6, since))
+       * (1.0 - smoothstep(uWiden.z, uWiden.z + 1.6, d));                       // the banks never get past the trench's full width
 }
 // The headcut itself: 1 on the short stretch of channel where the bed is dropping right now.
 float headcut(float d, float fill, float arrive) {

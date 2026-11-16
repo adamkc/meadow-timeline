@@ -115,7 +115,7 @@ export function createLogs({ index, buffer, textures, places, core, coreCorner, 
     const y0 = groundAt(x - dx, z - dz), y1 = groundAt(x + dx, z + dz);
     // Sunk a little into the duff.
     logs.set([x, (y0 + y1) / 2 - 0.25 * models[model].radius * size, z, heading, size, stretch, Math.atan2(y1 - y0, 2 * half),
-      data.getUint8(o + 7) === 0 ? -10 : data.getUint8(o + 7) / 255 * 8 - 1, data.getUint8(o + 8) / 255, model], i * 10);
+      data.getUint8(o + 7) === 0 ? -10 : data.getUint8(o + 7) / 255 * 10 - 3, data.getUint8(o + 8) / 255, model], i * 10);
   }
 
   return {

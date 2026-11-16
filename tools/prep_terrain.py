@@ -96,13 +96,16 @@ SRC = {
 tmp = tempfile.mkdtemp(prefix="meadow_prep_")
 
 # The timeline, in stage units.
-STAGE_KEYS = [2, 3, 4, 5, 6]     # stages at which tree shade is baked (0..2 have no meadow trees yet)
-CUT_START, CUT_SPAN = 0.35, 0.95  # the headcuts set off, and have worked their way up every reach this many stages later
+STAGE_KEYS = [0, 1, 2, 3, 4, 5, 6]  # stages at which tree shade is baked (the forest ages all the way through)
+CUT_START = 0.35                 # the headcuts set off
+MEADOW_SPAN = 0.95               # ... have worked their way up every meadow reach this many stages later,
+CUT_SPAN = 5.0                   # ... and go on up the channels into the forest for this long in all
+GULLY = (0.8, 1.7)               # metres a forest channel cuts down: small streams, large ones (it lessens upstream)
 EDGE_FADE = 220.0                # metres over which the scene fades into haze at the edge of the data (the watershed boundary)
 HEADCUT_SPEED = 450.0            # metres of channel a headcut climbs per stage (faster on reaches too long to finish in time)
 HEADCUT_FACE = 5.0               # metres of channel over which the bed drops at a headcut
 CUT_TIME = HEADCUT_FACE / HEADCUT_SPEED  # so a spot cuts to full depth in this many stages
-WIDEN_TIME, SLOT = 2.2, 3.5      # then the banks retreat for this long (slowly at first), from a gully this many metres either side of the centre line
+WIDEN_TIME, SLOT, WIDEN_MAX = 2.2, 3.5, 11.0   # then the banks retreat for this long (slowly at first), from a gully SLOT metres either side of the centre line to WIDEN_MAX at most
 DRY_SPAN, DRY_WIDTH = 1.8, 0.9   # the drying front takes DRY_SPAN stages to cross from the meadow's edge to the channel; a spot takes DRY_WIDTH to dry
 GROW_SPAN, GROW_POW = 3.0, 1.3   # a tree reaches full height GROW_SPAN stages after it germinates
 SWITCH_H = 9.5                   # below this a tree is drawn as a sapling, above as a mature tree
@@ -380,7 +383,9 @@ hold = np.maximum(order, 1 - np.clip(incision / 1.2, 0, 1))
 # incised reach (a run of channel with a terrace beside it) gets its own
 # headcut, which enters at the reach's downstream end when the cutting starts
 # and climbs at HEADCUT_SPEED, so all the meadows are captured over the same
-# stage. `arrive` is when it reaches a spot, 0..1 over CUT_SPAN.
+# stage. Above each reach the headcut does not stop: it goes on up the channel
+# and its tributaries into the forest, cutting a gully as it goes. `arrive` is
+# when it reaches a spot, 0..1 over CUT_SPAN (1 also where it never comes).
 # First, distance upstream along the channels from the watershed's outlet.
 flow_dist = np.full(zh.shape, -1.0, "f4")
 start = np.unravel_index(np.argmax(np.where(chan, acc_healed, 0)), zh.shape)
@@ -395,17 +400,43 @@ while queue:
                 flow_dist[a, b] = flow_dist[i, j] + (1.414 if di and dj else 1.0)
                 queue.append((a, b))
 reached = flow_dist >= 0
+in_core_early = np.zeros(zh.shape, bool)
+in_core_early[r0:r0 + n, c0:c0 + n] = True
 # Reaches: channel that has cut down, joined across short confined stretches.
 reach = reached & (ndi.maximum_filter(np.where(chan, incision, 0), 41) > 0.3)
 reach_id, reaches = ndi.label(reach, structure=np.ones((3, 3)))
 ids = np.arange(1, reaches + 1)
 lo = np.asarray(ndi.minimum(flow_dist, reach_id, ids))
 length = np.asarray(ndi.maximum(flow_dist, reach_id, ids)) - lo
-took = np.minimum(length / HEADCUT_SPEED, CUT_SPAN)             # stages each reach's headcut is on the move
-arrive_chan = np.zeros(zh.shape, "f4")
+took = np.minimum(length / HEADCUT_SPEED, MEADOW_SPAN)          # stages each reach's headcut is on the move
+when = np.full(zh.shape, np.inf, "f4")                          # stages after CUT_START that the headcut reaches each channel cell
 on = reach_id > 0
 k = reach_id[on] - 1
-arrive_chan[on] = (flow_dist[on] - lo[k]) / np.maximum(length[k], 1.0) * took[k] / CUT_SPAN
+when[on] = (flow_dist[on] - lo[k]) / np.maximum(length[k], 1.0) * took[k]
+# On up the network: each channel cell is reached from whichever cell below it was reached first.
+fr, fc_ = np.nonzero(reached & ~on)
+for i in np.argsort(flow_dist[fr, fc_], kind="stable"):
+    a, b = int(fr[i]), int(fc_[i])
+    here, best = flow_dist[a, b], np.inf
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            p, q = a + di, b + dj
+            if (di or dj) and 0 <= p < H and 0 <= q < W and reached[p, q] and flow_dist[p, q] < here:
+                best = min(best, when[p, q] + (1.414 if di and dj else 1.0) / HEADCUT_SPEED)
+    when[a, b] = best
+when[when > CUT_SPAN] = np.inf
+arrive_chan = np.where(np.isfinite(when), when / CUT_SPAN, 1.0).astype("f4")
+# The gully a headcut leaves in a forest channel: there is no terrace to
+# measure there, so its depth is a rule of thumb (deeper on bigger streams,
+# shallower the farther up it has come), cut into a strip a few metres wide.
+forest_chan = reached & ~on & np.isfinite(when)
+depth = np.where(forest_chan, np.clip(GULLY[0] + 0.45 * np.log10(np.maximum(acc_healed, WATER_MIN) / WATER_MIN), *GULLY)
+                 * np.clip(1.15 - 0.6 * when / CUT_SPAN, 0.45, 1.0), 0).astype("f4")
+gully = ndi.gaussian_filter(depth[cnear] * (1 - sstep(cdist, 2.0, 4.5)), 0.8)
+fill = np.maximum(fill, gully)
+filled = healed + fill
+print(f"gullies: headcuts climb {int(forest_chan.sum())} m of forest channel in the watershed by stage {CUT_START + CUT_SPAN:.1f} "
+      f"({int((forest_chan & in_core_early).sum())} m in the window), cutting {depth[forest_chan].mean():.1f} m on average", flush=True)
 # Ground beside a channel is cut when its channel is; the seams between
 # neighbouring channels are smoothed.
 arrive = np.clip(ndi.gaussian_filter(arrive_chan[cdrain], 5), 0, 1)
@@ -423,6 +454,12 @@ print(f"headcuts: {reaches} incised reaches in the watershed, {seen.size} in the
 # (Its own random numbers, so everything drawn after it stays as it was.)
 bank_rng = np.random.default_rng(23)
 bank_dist = np.maximum(cdist + sstep(cdist, 3.0, 12.0) * (6.0 * smooth_noise(8, bank_rng) + 3.0 * smooth_noise(3, bank_rng)), 0)
+# The banks stop at WIDEN_MAX. Beyond it the fill is never cut away: that
+# ground stays at the old meadow's level for good, as terrace, so it is not
+# part of the floodplain inside the trench. (Where the surveyed trench is wider
+# than this, the scene's final ground is higher than the survey there.)
+residual = fill * sstep(bank_dist, WIDEN_MAX, WIDEN_MAX + 1.6)
+inset_wet = inset_wet * (1 - np.clip(residual / 0.5, 0, 1))
 
 # ---- the meadow's many small channels (before one channel captures the flow) ----
 # Water crossed the meadow in several small channels that split and rejoin.
@@ -729,13 +766,45 @@ u = f_rng.uniform(size=r.size)
 # Pine on sunny slopes, in young stands and at the meadow's edge; fir in the shade and in old stands.
 piney = pine_stand[ir, ic] - 0.5 * shady[ir, ic] + 0.45 * young_stand[ir, ic] - 0.35 * old_stand[ir, ic] + 0.5 * skirt[ir, ic]
 young, mature = species(piney + f_rng.normal(0, 0.35, r.size) > 0.4, u)
-kind = np.where(h < 10, young, mature)                              # an upland tree keeps one picture throughout
-dead = f_rng.uniform(size=r.size) < 0.03 + 0.05 * old_stand[ir, ic] + 0.04 * young_stand[ir, ic]   # standing dead: old stands and crowded young ones
-kind = np.where(dead, np.where(h < 10, choose(short_snags, u), choose(tall_snags, u)), kind)
 print(f"upland forest: {r.size} trees, {1e4 * r.size / max(1, int((upland & valid).sum())):.0f} per hectare on average; canopy height "
       f"{np.percentile(h, 10):.0f} to {np.percentile(h, 90):.0f} m (10th to 90th percentile), tallest {h.max():.0f} m; "
       f"{100 * opening[upland & valid].mean():.0f}% of the ground is in openings", flush=True)
-add(r, c, h, -10.0, NEVER, kind, kind, kind, False)
+# The forest ages with the timeline, like the trees that take the meadow: `h`
+# is each tree's height at the start. Young stands grow up and thin
+# themselves, trees under the canopy are released or shaded out, old trees
+# die and stand as snags, and new trees come up in the openings and under the
+# old stands.
+ys, os_ = young_stand[ir, ic], old_stand[ir, ic]
+v = f_rng.uniform(size=(6, r.size))
+reach_for = stand_h[ir, ic] * (1 + 0.45 * ys) * f_rng.lognormal(0, 0.15, r.size)      # what a tree here can come to
+final = np.where(small, np.maximum(h * 1.4, reach_for * (0.6 + 0.4 * v[0])),          # under the canopy: released
+                 np.maximum(h, np.minimum(reach_for, h * (1.05 + 1.5 * ys * v[0] + 0.25 * v[1]))))
+final = np.clip(np.where(giant, h, final), h, 50.5)
+grows = final > h * 1.06
+final = np.where(grows, final, h)
+born = np.where(grows, -GROW_SPAN * (h / final) ** (1 / GROW_POW), -10.0)               # so that it stands h tall at stage 0
+dies = v[2] < 0.08 + 0.2 * os_ + 0.32 * ys + 0.22 * small + 0.12 * giant
+died = np.where(dies, np.where(ys > 0.5, 0.4 + 3.6 * v[3] ** 1.3, 0.3 + 6.4 * v[3]), NEVER)
+# Standing dead at the start: old stands and crowded young ones. They fall early on.
+dead0 = v[4] < 0.03 + 0.05 * os_ + 0.04 * ys
+born, final, died = np.where(dead0, -10.0, born), np.where(dead0, h, final), np.where(dead0, -0.3 * v[5], died)
+at_death = tree_height(final, born, died, died)
+snag = np.where(at_death >= 11, choose(tall_snags, u), choose(short_snags, u))
+add(r, c, final, born, died, young, mature, snag, False)
+# Recruits: on a grid of their own, most of them in the openings.
+gr, gc = np.meshgrid(np.arange(1.65, H, 3.3), np.arange(1.65, W, 3.3), indexing="ij")
+rr_ = np.clip(gr.ravel() + f_rng.uniform(-0.47, 0.47, gr.size) * 3.3, 0, H - 1.001)
+rc_ = np.clip(gc.ravel() + f_rng.uniform(-0.47, 0.47, gc.size) * 3.3, 0, W - 1.001)
+ir2, ic2 = rr_.astype(int), rc_.astype(int)
+come = buildable[ir2, ic2] & upland[ir2, ic2] & (f_rng.uniform(size=rr_.size) < (0.03 + 0.26 * opening[ir2, ic2] + 0.06 * old_stand[ir2, ic2])
+                                                  * (1 - 0.6 * sstep(slope_deg[ir2, ic2], 28, 40)))
+rr_, rc_, ir2, ic2 = rr_[come], rc_[come], ir2[come], ic2[come]
+u2 = f_rng.uniform(size=rr_.size)
+young2, mature2 = species(pine_stand[ir2, ic2] + 0.6 * opening[ir2, ic2] - 0.5 * shady[ir2, ic2] + f_rng.normal(0, 0.35, rr_.size) > 0.4, u2)
+add(rr_, rc_, np.clip((26 + 6 * f_rng.normal(0, 1, rr_.size)) * site[ir2, ic2], 9, 44), f_rng.uniform(0.15, 5.3, rr_.size),
+    np.where(f_rng.uniform(size=rr_.size) < 0.12, f_rng.uniform(2.0, 6.5, rr_.size), NEVER), young2, mature2, choose(short_snags, u2), False)
+print(f"the forest ages: {int(grows.sum())} of its trees are still growing at the start, {int((dies & ~dead0).sum())} die along the way, "
+      f"{int(dead0.sum())} are standing dead at the start, {rr_.size} come up later", flush=True)
 
 # Viewpoints on the ground at the circled meadow (all in metres from the
 # window's north-west corner).
@@ -853,8 +922,8 @@ if "willow" in kinds:
     dies = np.where(hold[ir, ic] >= 0.95, NEVER, cut_stage[ir, ic] + 0.35 + DRY_SPAN * hold[ir, ic] + DRY_WIDTH * (0.6 + 1.2 * u[1]))
     # On the trench's floor: willows are among the first plants onto raw sediment,
     # soon after the bank has passed, and are shrubs a couple of stages later.
-    passed = np.sqrt(np.clip((bank_dist[ir, ic] - SLOT) / (80 - SLOT), 0, 1))
-    new = standable & (inset_wet[ir, ic] > 0.5) & (fill[ir, ic] >= 0.3) & beside(water[""][0], 0.8, 14.0) & (u[0] < 0.08 + 0.7 * clumped)
+    passed = np.sqrt(np.clip((bank_dist[ir, ic] - SLOT) / (WIDEN_MAX - SLOT), 0, 1))
+    new = standable & (inset_wet[ir, ic] > 0.5) & (fill[ir, ic] >= 0.3) & (bank_dist[ir, ic] < WIDEN_MAX) & beside(water[""][0], 0.8, 14.0) & (u[0] < 0.08 + 0.7 * clumped)
     comes = cut_stage[ir, ic] + 0.7 * CUT_TIME + passed * WIDEN_TIME + 0.5 + 1.0 * u[1]
     for which, (ok, born, died) in enumerate([(old, np.full(r.size, -10.0), dies), (new, comes, np.full(r.size, NEVER))]):
         pick = np.minimum((u[2][ok] * len(willow_types)).astype(int), len(willow_types) - 1)
@@ -874,9 +943,9 @@ tr, tc, hmax, birth, death, t_young, t_mature, t_snag, meadow_tree, road_tree = 
 
 
 def stage_byte(s):
-    """A stage (-1..7) as a byte. 0 means "from the start", 255 "never"."""
-    b = np.clip(np.rint((s + 1) / 8 * 255), 1, 254)
-    return np.where(s < -1, 0, np.where(s > 7, 255, b)).astype("u1")
+    """A stage (-3..7) as a byte. 0 means "long before the start", 255 "never"."""
+    b = np.clip(np.rint((s + 3) / 10 * 255), 1, 254)
+    return np.where(s < -3, 0, np.where(s > 7, 255, b)).astype("u1")
 
 
 trees = np.zeros(tr.size, dtype=[("x", "<u2"), ("z", "<u2"), ("hmax", "u1"), ("birth", "u1"), ("death", "u1"), ("seed", "u1"),
@@ -1044,15 +1113,16 @@ twin = (slice(tr0, tr1), slice(tc0, tc1))
 tinner = (slice(r0 - tr0, r0 - tr0 + n), slice(c0 - tc0, c0 - tc0 + n))
 
 # ---- tree shade at each key stage --------------------------------------------
+# Trees that stand unchanged from start to finish are stamped once; the rest at every key stage.
 top_up, bot_up = np.full((H, W), -np.inf, "f4"), np.full((H, W), np.inf, "f4")
-up = ~meadow_tree
-stamp(top_up, bot_up, tr[up], tc[up], hmax[up], t_mature[up])
+fixed = (birth <= -9) & (death > 90)
+stamp(top_up, bot_up, tr[fixed], tc[fixed], hmax[fixed], np.where(hmax < SWITCH_H, t_young, t_mature)[fixed])
 stacks = {k: [] for k in ("core_lit", "core_cover", "far_lit", "far_cover")}
 stage_stats = []
 in_window = (tr >= r0) & (tr < r0 + n) & (tc >= c0) & (tc < c0 + n)
 for k in STAGE_KEYS:
     h_k = tree_height(hmax, birth, death, k)
-    alive = meadow_tree & (birth < k) & (death > k) & (h_k >= 1.0)
+    alive = ~fixed & (birth < k) & (death > k) & (h_k >= 1.0)
     top, bot = top_up.copy(), bot_up.copy()
     stamp(top, bot, tr[alive], tc[alive], h_k[alive], np.where(h_k < SWITCH_H, t_young, t_mature)[alive])
     # Blurred widely, so a lone tree counts as light cover and a stand as full cover.
@@ -1062,7 +1132,7 @@ for k in STAGE_KEYS:
     # At 4 m a cell is only partly crown, so its shadow is partial too.
     stacks["far_lit"].append(1 - 0.85 * (1 - tree_light(far_z, block_max(top), -block_max(-bot), fc, shadow_reach)))
     stacks["far_cover"].append(block(cover))
-    seen = alive & in_window
+    seen = alive & in_window & meadow_tree
     standing_dead = meadow_tree & in_window & (death <= k) & (death + 0.55 > k)
     stage_stats.append(f"stage {k}: {int(seen.sum()):6d} live meadow trees in the window, median {np.median(h_k[seen]) if seen.any() else 0:4.1f} m, "
                        f"tallest {h_k[seen].max() if seen.any() else 0:4.1f} m, {int(standing_dead.sum()):5d} standing dead, canopy cover {100 * cover[core].mean():3.0f}%")
@@ -1151,7 +1221,7 @@ meta = {
     },
     "horizonMaxDeg": 45,
     "fillMax": 4.0,
-    "stages": {"count": 7, "keys": STAGE_KEYS, "cut": [CUT_START, CUT_SPAN, CUT_TIME], "widen": [WIDEN_TIME, SLOT], "dry": [DRY_SPAN, DRY_WIDTH]},
+    "stages": {"count": 7, "keys": STAGE_KEYS, "cut": [CUT_START, CUT_SPAN, CUT_TIME], "widen": [WIDEN_TIME, SLOT, WIDEN_MAX], "dry": [DRY_SPAN, DRY_WIDTH]},
     "channelDistMax": 120.0,
     "orbit": {"x": ox, "z": oz, "radius": ORBIT_R, "height": ORBIT_H, "start": ORBIT_START},   # metres from the core's north-west corner
     "landscape": landscape,

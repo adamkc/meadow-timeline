@@ -102,12 +102,14 @@ The six viewpoints:
 | 6 | Like a map | fixed, from the south, north at the top |
 
 Between the views in the air the camera flies; to and from the ground it cuts.
+A visit starts at 3, under the old trees, where the change is most striking.
 
 URL options: `&stage=0..6` (fractions allowed), `?u=0.3` (position around the
 circle, paused, for stills), `&orbit=x,z` (circle another spot, metres from the
 window's centre), `&radius=`, `&height=`, `&period=` (seconds per circuit),
 `&view=meadow|landscape|canopy|rim|channel|plan` (start at that viewpoint),
-`&start=0` (no start screen), `&sound=0`, `&wildlife=0`, `&shafts=` (strength
+`&start=0` (no start screen), `&sound=0`, `&hush=pines,brook` (silence
+named layers of the sound; the I readout lists what is playing), `&wildlife=0`, `&shafts=` (strength
 of the light shafts, 0 for none), `&tour=stream` (fly down the
 stream instead), `&yaw=`, `&pitch=`, `&at=x,z`
 (stand at a point), `&look=x,z` (with `at`), `&walk=x,z,heading` (start on
@@ -203,7 +205,14 @@ the picture without blending over time.
   climbs at 450 m of channel per stage or faster, so all the meadows are cut
   over the same stage. Behind it is a gully 7 m wide at the trench's full
   depth; then the banks retreat sideways, slowly at first, in bays and points,
-  until today's trench is exposed. Gully and trench floor stay raw sediment
+  to 11 m either side of the channel at most. Where the surveyed trench is
+  wider than that, the ground beyond stays at the old meadow's level for good,
+  so the scene's final trench is narrower than the survey's. Above each meadow
+  the headcut does not stop: it goes on up the channel and its tributaries
+  into the forest at the same speed, for five stages in all (9.6 km of forest
+  channel in this watershed), leaving a gully 0.8 to 1.7 m deep in a strip a
+  few metres wide. There is no terrace in the forest to measure that depth
+  from; it is a rule of thumb. Gully and trench floor stay raw sediment
   for one to two and a half stages after the bank has passed, then green over
   from the channel outward: that is the new floodplain. The bank on the sun's
   side casts its shadow across the floor, worked out in the shader, since the
@@ -257,7 +266,14 @@ the picture without blending over time.
   ground and fir in the shade. Over the lost meadow: glades where the conifers
   never take hold (about a seventh of it), and a stand that grows taller in
   some patches than in others.
-- **Tree shade**: baked at stages 3 to 7 and blended between them.
+- **The forest ages** with the timeline, like the trees that take the meadow.
+  Each upland tree has a height at the start and a height it can come to:
+  young stands grow up and thin themselves, trees under the canopy are
+  released or shaded out, old trees die and stand a while as snags, and new
+  trees come up in the openings and under old stands. About two thirds of the
+  forest's trees are still growing at the start, a quarter die along the way,
+  and canopy cover in the window goes from 54% to 76%.
+- **Tree shade**: baked at every stage and blended between them.
 - **Water**: painted on the terrain. The small channels run over sand; the
   incised channel has a cobble bed and bars. Far off, a stream is drawn at
   least about a pixel wide so it does not break up.
@@ -281,8 +297,12 @@ the picture without blending over time.
   each follows the timeline: the insects go as the meadow dries, the swallows
   when the trees close in.
 - **Sound** (`sound.js`): made as it plays with the Web Audio API; there are no
-  sound files. Wind in grass, wind in pines, running water and grasshoppers
-  are filtered noise; frogs, a blackbird, a sparrow, a chickadee and a
+  sound files. The air is mostly still: wind comes in gusts of a few seconds,
+  as noise through filters that open while the gust rises, with quiet between
+  (a steady hiss sounds like static, not wind). Running water is a loop built
+  once out of bubbles, hundreds of short tones a second that rise in pitch as
+  they die away. Grasshoppers are a narrow band of noise in pulses; frogs, a
+  blackbird, a sparrow, a chickadee and a
   nuthatch are oscillators with a pitch glide and a loudness curve per note; a
   woodpecker is a roll of short thumps. What is heard depends on the stage, on
   the camera's height, on the canopy overhead and on how near running water
@@ -418,8 +438,11 @@ came from as ideas. None of its code is used here.
   them, in hard shadow. From the air these read as dark patches on the meadow.
 - The pre-incision surface is a simple fill, and banks retreat by distance
   from the channel's centre line, made ragged by a fixed pattern rather than by
-  any model of where banks fail. Where today's valley is confined (no
-  terrace), the scene shows no change.
+  any model of where banks fail.
+- The trench is held to 22 m wide, which is narrower than the survey shows in
+  places: about 40% of the ground the survey has below terrace level stays up.
+  The forest gullies' depth is invented, and the willows that line a forest
+  stream only come in after its gully has cut, which is backwards.
 - Cut banks are steep faces of a 1 m height grid: textures stretch on them.
 - A few lone trees stand in the wet meadow from the start, on small patches the
   zone rules count as upland.

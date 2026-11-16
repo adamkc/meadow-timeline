@@ -2,7 +2,12 @@
 // heard follows the timeline as closely as what is seen: frogs, running water
 // and blackbirds over the wet meadow; grasshoppers and sparrows once it has
 // dried; wind in the pines, a nuthatch, a chickadee and a woodpecker when the
-// forest has closed over it. From the air it all falls away to moving air.
+// forest has closed over it.
+//
+// The air is mostly still. Wind comes in gusts, a few seconds each, with quiet
+// between them: a steady hiss, however it is filtered, sounds like static or a
+// far-off waterfall, not like wind. Water is not hiss either: it is made of
+// bubbles, hundreds of short rising chirps.
 //
 // build() makes the whole graph on any audio context, live or offline, so that
 // tools/sound_test.mjs can render it and measure the levels.
@@ -19,10 +24,9 @@ export function mixFor({ stage, height, canopy, water, cut }) {
   const open = 1 - smooth(3.3, 4.8, stage);               // still open ground
   const forest = Math.max(canopy * (height < 40 ? 1 : 0), smooth(3.4, 5.4, stage));
   return {
-    grass: 0.9 * open * (1 - 0.6 * forest) * near,
-    pines: (0.35 + 0.65 * forest) * (0.35 + 0.65 * near),
-    air: 1 - near,
-    brook: water * near * (0.45 + 0.55 * cut),
+    grass: open * (1 - 0.6 * forest) * near,
+    pines: (0.3 + 0.7 * forest) * (0.3 + 0.7 * near) + 0.3 * (1 - near),   // from the air, wind over the forest is all there is
+    brook: water * near * (0.5 + 0.5 * cut),
     frogs: wet * near,
     meadowBirds: open * near * (1 - 0.5 * canopy),
     blackbirds: wet * open * near,
@@ -64,22 +68,54 @@ export function build(ac, seed = 1) {
   for (let ch = 0; ch < 2; ch++) { const d = tail.getChannelData(ch); let b = 0; for (let i = 0; i < d.length; i++) { const t = i / sr; b += (rnd() * 2 - 1 - b) * (0.1 + 0.6 * Math.exp(-t * 5)); d[i] = b * Math.exp(-t * 4.2) * (1 - Math.exp(-t * 60)); } }
   const far = node(ConvolverNode, { buffer: tail }, out);
 
-  // ---- the steady layers: each is noise through filters, its level set by apply()
+  // ---- wind: noise through filters that open as a gust rises; almost nothing between gusts
   const level = {};
-  // Wind in grass and sedge: a light hiss that comes and goes.
   level.grass = gain(0, out);
-  { const g = gain(0.5, level.grass); source(white, 1, filter('bandpass', 3400, 0.5, filter('highpass', 1500, 0.7, g))); lfo(0.11, 0.25, g.gain); lfo(0.047, 0.2, g.gain); }
-  // Wind in pines: lower, slower, a long sigh.
   level.pines = gain(0, out);
-  { const g = gain(0.5, level.pines), f = filter('bandpass', 520, 0.45, g); source(dark, 1.9, f); source(white, 0.7, filter('bandpass', 1500, 0.6, gain(0.05, g))); lfo(0.06, 0.28, g.gain); lfo(0.023, 0.18, g.gain); lfo(0.05, 140, f.frequency); }
-  // Open air, high up.
-  level.air = gain(0, out);
-  { const g = gain(0.5, level.air); source(dark, 1, filter('lowpass', 260, 0.5, g)); lfo(0.04, 0.2, g.gain); }
-  // Running water: noise through two narrow filters that wander, so it trickles and never repeats.
+  const gustGrass = gain(0.03, level.grass), gustPines = gain(0.03, level.pines);
+  const grassTone = filter('bandpass', 2600, 0.45, filter('highpass', 1200, 0.7, gustGrass));   // a light hiss in grass and sedge
+  const pinesTone = filter('lowpass', 420, 0.6, filter('highpass', 110, 0.7, gustPines));       // lower and slower: a long sigh
+  source(white, 1, grassTone); source(dark, 1.7, pinesTone); source(white, 0.6, filter('bandpass', 1100, 0.5, gain(0.035, pinesTone)));
+  // Gusts are set by tick(): how strong the next one is, and how long the lull after it.
+  let gustAt = 0.5;
+  function gusts(horizon) {
+    while (gustAt < horizon) {
+      const strength = rnd() < 0.55 ? rr(0.35, 1.0) : rr(0.08, 0.25), rise = rr(0.7, 1.8), hold = rr(1.2, 4.5), fall = rr(1.5, 3.5);
+      for (const [g, tone, lo, hi, lag] of [[gustGrass, grassTone, 2200, 4200, 0], [gustPines, pinesTone, 330, 950, 0.7]]) {
+        g.gain.setTargetAtTime(0.03 + 0.97 * strength, gustAt + lag, rise / 2.5);
+        tone.frequency.setTargetAtTime(lo + (hi - lo) * strength, gustAt + lag, rise / 2.5);
+        g.gain.setTargetAtTime(0.03, gustAt + lag + rise + hold, fall / 2.5);
+        tone.frequency.setTargetAtTime(lo, gustAt + lag + rise + hold, fall / 2.5);
+      }
+      gustAt += rise + hold + fall + rr(1.5, 9);   // and then a lull
+    }
+  }
+  // ---- running water: a loop built once, out of bubbles. Each is a short tone that
+  // rises in pitch as it dies away; hundreds of them a second make a trickle.
+  const bubbles = (seconds, perSecond, low, high) => {
+    const n = Math.floor(sr * seconds), buffer = new AudioBuffer({ length: n, numberOfChannels: 2, sampleRate: sr });
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buffer.getChannelData(ch);
+      for (let b = 0, count = Math.floor(seconds * perSecond); b < count; b++) {
+        const f0 = low * Math.pow(high / low, rnd()), dur = rr(0.012, 0.03) * Math.sqrt(1500 / f0) + 0.006, glide = rr(1.1, 1.6);
+        const amp = rr(0.15, 1) * Math.pow(900 / f0, 0.35) * (rnd() < 0.08 ? 2.2 : 1), len = Math.floor(dur * sr), start = Math.floor(rnd() * n);
+        let phase = 0;
+        for (let i = 0; i < len; i++) {
+          const t = i / len;
+          phase += 2 * Math.PI * f0 * (1 + (glide - 1) * t) / sr;
+          d[(start + i) % n] += amp * Math.sin(phase) * Math.min(1, i / (0.002 * sr)) * Math.exp(-4.5 * t);   // wraps round the end, so the loop has no seam
+        }
+      }
+      let peak = 0;
+      for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+      for (let i = 0; i < n; i++) d[i] /= peak;
+    }
+    return buffer;
+  };
   level.brook = gain(0, out);
-  { const pre = filter('highpass', 450, 0.7), a = filter('bandpass', 1250, 2.2, gain(0.9, level.brook)), b = filter('bandpass', 2700, 3.2, gain(0.6, level.brook)), c = filter('bandpass', 620, 1.4, gain(0.45, level.brook));
-    source(white, 0.83, pre); pre.connect(a); pre.connect(b); pre.connect(c);
-    lfo(3.1, 260, a.frequency); lfo(0.7, 180, a.frequency); lfo(5.3, 500, b.frequency); lfo(1.3, 300, b.frequency); lfo(2.2, 120, c.frequency); }
+  source(bubbles(7, 260, 500, 3600), 1, gain(0.6, level.brook));
+  source(bubbles(5, 120, 300, 1400), 1, gain(0.45, level.brook));                               // the lower voice of deeper water
+  source(white, 0.9, filter('bandpass', 1900, 0.8, gain(0.012, level.brook)));                  // and a breath of spray under it
   // Grasshoppers in dry grass: a thin, high rasp in pulses.
   level.insects = gain(0, out);
   { const swell = gain(0.55, level.insects), pulses = gain(0.5, swell);   // 31 pulses a second, in bouts that swell and fade
@@ -145,8 +181,8 @@ export function build(ac, seed = 1) {
       return at - t; } },
   ];
 
-  const mix = { grass: 0, pines: 0, air: 0, brook: 0, frogs: 0, meadowBirds: 0, blackbirds: 0, insects: 0, forestBirds: 0 };
-  const LEVELS = { grass: 0.13, pines: 0.2, air: 0.13, brook: 0.3, insects: 0.5 };
+  const mix = { grass: 0, pines: 0, brook: 0, frogs: 0, meadowBirds: 0, blackbirds: 0, insects: 0, forestBirds: 0 };
+  const LEVELS = { grass: 0.1, pines: 0.14, brook: 0.2, insects: 0.5 };
   return {
     out,
     // Set what each layer should be doing (see mixFor), moving there over about a second.
@@ -156,6 +192,7 @@ export function build(ac, seed = 1) {
     },
     // Schedule every call due before `horizon` (seconds on the context's clock).
     tick(horizon) {
+      gusts(horizon);
       for (const c of callers) {
         while (c.next < horizon) {
           const amount = clamp(mix[c.key]);
@@ -165,14 +202,15 @@ export function build(ac, seed = 1) {
         }
       }
     },
-    skipTo(t) { for (const c of callers) c.next = Math.max(c.next, t + rnd() * 2); },
+    skipTo(t) { gustAt = Math.max(gustAt, t + 0.5); for (const c of callers) c.next = Math.max(c.next, t + rnd() * 2); },
+    get mix() { return mix; },
   };
 }
 
 const VOLUME = 0.8;
 
 // The live sound: starts on the visitor's first click or key (browsers allow nothing sooner).
-export function createSound() {
+export function createSound({ hush = [] } = {}) {
   let ac = null, graph = null, muted = false, wanted = null;
   try { muted = localStorage.getItem('meadow.muted') === '1'; } catch {}
   const api = {
@@ -195,7 +233,13 @@ export function createSound() {
     // Called a few times a second with where the camera is and when (see mixFor).
     update(where) {
       wanted = mixFor(where);
+      for (const k of hush) if (k in wanted) wanted[k] = 0;   // ?hush=pines,brook silences layers, to find which one is which
       if (graph) graph.apply(wanted);
+    },
+    // What is playing, loudest first, for the render-info readout (I).
+    describe() {
+      if (!wanted) return '';
+      return Object.entries(wanted).filter(([, v]) => v > 0.05).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', ');
     },
     toggleMute() {
       muted = !muted;

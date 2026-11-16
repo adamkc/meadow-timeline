@@ -195,7 +195,7 @@ export function createTrees({ buffer, life, cards, cardA, cardB, levels, farOrig
   const view = new DataView(buffer);
   const REC = life.bytes;
   const count = buffer.byteLength / REC;
-  const stageOf = (byte, special, value) => (byte === special ? value : byte / 255 * 8 - 1);
+  const stageOf = (byte, special, value) => (byte === special ? value : byte / 255 * 10 - 3); // as written by stage_byte in tools/prep_terrain.py
   const groups = new Map();
   for (let i = 0; i < count; i++) {
     const x = view.getUint16(i * REC, true) / 10, z = view.getUint16(i * REC + 2, true) / 10;

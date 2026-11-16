@@ -13,7 +13,7 @@ const cases = {
   circling_above_wet_meadow: { stage: 0, height: 60, canopy: 0, water: 0.3, cut: 0 },
   whole_valley: { stage: 3, height: 600, canopy: 0, water: 0, cut: 0 },
 };
-const solo = ['grass', 'pines', 'air', 'brook', 'insects', 'frogs', 'blackbirds', 'meadowBirds', 'forestBirds'];
+const solo = ['grass', 'pines', 'brook', 'insects', 'frogs', 'blackbirds', 'meadowBirds', 'forestBirds'];
 async function render(mix) {
   const ac = new OfflineAudioContext(2, SR * SECONDS, SR);
   const graph = build(ac, 7);
@@ -39,6 +39,8 @@ for (const key of solo) {
   for (let i = SR; i < l.length; i++) { sum += l[i] * l[i]; peak = Math.max(peak, Math.abs(l[i])); }
   out.solo[key] = { rms: Math.sqrt(sum / (l.length - SR)), peak };
 }
+for (const key of ['grass', 'pines', 'brook']) window.__samples['solo_' + key] = (await render(Object.fromEntries(solo.map((k) => [k, k === key ? 1 : 0]))))[0];
+out.extra = ['solo_grass', 'solo_pines', 'solo_brook'];
 window.__sound = out;
 // A stretch of one channel as 16-bit samples in base64, for spectrograms.
 window.__chunk = (name, start, length) => {
