@@ -3,13 +3,67 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meadow</title>
+<title>How a meadow is lost</title>
+<meta name="description" content="A wet mountain meadow, the stream that cuts down through it, and the forest that takes its place: seven stages on real terrain, in your browser.">
 <style>
   html, body { margin: 0; height: 100%; background: #0d0f10; overflow: hidden; font: 13px/1.5 system-ui, sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: grab; }
   canvas:active { cursor: grabbing; }
   #veil { position: fixed; inset: 0; display: grid; place-items: center; background: #c9b79c; color: #4d4335; font-size: 15px; opacity: 1; pointer-events: none; transition: opacity 1.2s ease; }
   #stats { position: fixed; left: 12px; top: 10px; padding: 3px 8px; border-radius: 4px; background: rgba(8, 12, 10, .6); color: #fff; font-size: 12px; pointer-events: none; }
+  /* The start screen. The scene runs behind it, blurred and dimmed, and comes into focus on Begin. */
+  canvas { transition: filter .9s ease; }
+  body.waiting canvas { filter: blur(9px) brightness(.55); }
+  body.waiting #timeline, body.waiting #mute { opacity: 0; pointer-events: none; }
+  #timeline, #mute { transition: opacity .9s ease; }
+  #start { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .7);
+           transition: opacity .6s ease; overflow-y: auto; }
+  body:not(.waiting) #start { opacity: 0; pointer-events: none; }
+  #start[hidden] { display: none; }
+  body.instant canvas, body.instant #timeline, body.instant #mute { transition: none; }   /* fixed frames and tests: no fade in */
+  #start > div { max-width: 560px; text-align: center; }
+  #start h1 { margin: 0 0 10px; font-size: clamp(28px, 5vw, 44px); font-weight: 650; letter-spacing: -.01em; text-wrap: balance; }
+  #start p { margin: 0 auto 22px; max-width: 46ch; font-size: 16px; line-height: 1.5; opacity: .92; text-wrap: pretty; }
+  #begin { padding: 11px 34px; border: 1px solid rgba(255, 255, 255, .8); border-radius: 8px; background: #cfe3a8; color: #17200f; font: inherit; font-size: 17px;
+           font-weight: 600; cursor: pointer; text-shadow: none; }
+  #begin:hover, #begin:focus-visible { background: #e2f1c4; outline: none; }
+  #begin:disabled { opacity: .5; cursor: progress; }
+  #start dl { display: grid; grid-template-columns: auto auto; justify-content: center; gap: 4px 14px; margin: 26px 0 22px; font-size: 13px; text-align: left; opacity: .88; }
+  #start dt { font-weight: 600; text-align: right; }
+  #start dd { margin: 0; }
+  #start nav { display: flex; justify-content: center; gap: 10px; font-size: 13px; }
+  #start nav a { padding: 5px 12px; border: 1px solid rgba(255, 255, 255, .45); border-radius: 6px; color: inherit; text-decoration: none; background: rgba(8, 12, 10, .35); }
+  #start nav a:hover, #start nav a:focus-visible { background: rgba(255, 255, 255, .2); outline: none; }
+  #start nav a[hidden] { display: none; }
+  /* The field guide: a panel down the right-hand side, over the scene. */
+  #guide-button { position: fixed; right: 92px; top: 10px; padding: 3px 10px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 6px; background: rgba(8, 12, 10, .45);
+                  color: #fff; font: inherit; font-size: 12px; cursor: pointer; transition: opacity .9s ease; }
+  #guide-button:hover, #guide-button:focus-visible, #guide-button.on { background: rgba(255, 255, 255, .2); outline: none; }
+  body.waiting #guide-button { opacity: 0; pointer-events: none; }
+  #guide { position: fixed; right: 0; top: 0; bottom: 0; width: min(400px, 100vw); display: flex; flex-direction: column; background: rgba(14, 19, 16, .93); color: #eef0ea;
+           box-shadow: -6px 0 24px rgba(0, 0, 0, .4); z-index: 2; }
+  #guide[hidden] { display: none; }
+  #guide header { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 10px; border-bottom: 1px solid rgba(255, 255, 255, .12); }
+  #guide h2 { margin: 0; flex: 1; font-size: 18px; font-weight: 600; }
+  #guide .close { border: 0; background: none; color: inherit; font: inherit; font-size: 13px; cursor: pointer; opacity: .75; padding: 2px 4px; }
+  #guide .close:hover, #guide .close:focus-visible { opacity: 1; outline: none; text-decoration: underline; }
+  #guide .guide-body { overflow-y: auto; padding: 4px 16px 24px; font-size: 13px; line-height: 1.45; }
+  #guide .intro { margin: 10px 0 4px; opacity: .9; }
+  #guide h3 { margin: 20px 0 2px; font-size: 14px; font-weight: 600; color: #cfe3a8; }
+  #guide .note { margin: 0 0 8px; font-size: 12px; opacity: .7; }
+  #guide ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  #guide li { display: flex; gap: 10px; align-items: flex-start; }
+  #guide .thumb { flex: none; width: 54px; height: 54px; border-radius: 6px; background-color: #26321f; background-repeat: no-repeat; }
+  #guide .thumb.tall { background-color: #5d7388; }
+  #guide .text { flex: 1; min-width: 0; }
+  #guide .head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+  #guide .head b { font-weight: 600; }
+  #guide .head i { opacity: .7; }
+  #guide .where { font-size: 12px; color: #cfe3a8; opacity: .9; }
+  #mute { position: fixed; right: 12px; top: 10px; padding: 3px 10px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 6px; background: rgba(8, 12, 10, .45);
+          color: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+  #mute.off { opacity: .6; }
+  #mute:hover, #mute:focus-visible { background: rgba(255, 255, 255, .2); outline: none; }
   #error { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; color: #fff; font-size: 15px; text-align: center; }
 
   /* The timeline: what stage this is, and a track to move through the stages. */
@@ -21,9 +75,13 @@
   #row { display: flex; align-items: flex-start; gap: 18px; }
   #play { flex: none; width: 64px; margin-top: -7px; padding: 5px 0; border: 1px solid rgba(255, 255, 255, .55); border-radius: 6px;
           background: rgba(255, 255, 255, .1); color: inherit; font: inherit; cursor: pointer; }
-  #play:hover, #play:focus-visible, #wide:hover, #wide:focus-visible { background: rgba(255, 255, 255, .22); outline: none; }
-  #wide { position: absolute; right: 28px; top: 36px; padding: 5px 12px; border: 1px solid rgba(255, 255, 255, .55); border-radius: 6px;
-          background: rgba(255, 255, 255, .1); color: inherit; font: inherit; cursor: pointer; text-shadow: inherit; }
+  #play:hover, #play:focus-visible { background: rgba(255, 255, 255, .22); outline: none; }
+  /* The viewpoints: a column at the right, above the timeline. */
+  #views { position: absolute; right: 28px; bottom: 100%; margin-bottom: -28px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+  #views button { padding: 4px 10px; border: 1px solid rgba(255, 255, 255, .3); border-radius: 6px; background: rgba(8, 12, 10, .38); color: inherit;
+                  font: inherit; font-size: 12px; text-align: left; cursor: pointer; text-shadow: inherit; opacity: .8; }
+  #views button b { display: inline-block; width: 1.1em; font-weight: 600; opacity: .7; }
+  #views button:hover, #views button:focus-visible, #views button.on { opacity: 1; background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .7); outline: none; }
   #scale { flex: 1; min-width: 0; margin: 0 46px 0 40px; }
   #track { position: relative; height: 18px; cursor: pointer; touch-action: none; }
   #track::before { content: ""; position: absolute; left: 0; right: 0; top: 7px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .28); }
@@ -39,7 +97,9 @@
   #hud b { font-weight: 600; }
   @media (max-width: 860px) {            /* narrow screens: only the current stage is named */
     #timeline { padding: 30px 14px 10px; }
-    #wide { right: 14px; top: 26px; }
+    #views { right: 14px; }
+    #views button { font-size: 0; padding: 4px 8px; }           /* narrow screens: just the numbers */
+    #views button b { font-size: 12px; width: auto; }
     #scale { margin: 0 10px; }
     #stops button:not(.on) { font-size: 0; }
     #hud { display: none; }
@@ -47,11 +107,12 @@
 </style>
 <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
 </head>
-<body>
+<!-- data-support: the address of a page for supporting this work (a Ko-fi page, say). Empty: no button. -->
+<body class="waiting" data-support="">
 <canvas id="view"></canvas>
 <div id="veil">Loading the meadow…</div>
 <div id="timeline">
-  <button id="wide" type="button">Landscape view</button>
+  <div id="views"></div>
   <h1 id="stage-title"></h1>
   <p id="stage-text"></p>
   <div id="row">
@@ -62,6 +123,33 @@
     </div>
   </div>
   <div id="hud"></div>
+</div>
+<button id="guide-button" type="button">Field guide</button>
+<button id="mute" type="button">Sound on</button>
+<aside id="guide" hidden aria-label="Field guide">
+  <header><h2>Field guide</h2><button class="close" type="button">Close</button></header>
+  <div class="guide-body">
+    <p class="intro">What grows, flies and calls in this scene, some of the rarer plants and animals that depend on California&rsquo;s mountain meadows, and two that have not been found for years. No single meadow holds them all: each entry says where it lives. A star (*) marks species found only in California.</p>
+  </div>
+</aside>
+<div id="start">
+  <div>
+    <h1>How a meadow is lost</h1>
+    <p>A wet mountain meadow, the stream that cuts down through it, and the forest that takes its place. Seven stages, on real terrain.</p>
+    <button id="begin" type="button" disabled>Begin</button>
+    <dl>
+      <dt>Play, or the track</dt><dd>move through time</dd>
+      <dt>1 to 6</dt><dd>six places to watch from</dd>
+      <dt>Drag</dt><dd>look around</dd>
+      <dt>Enter</dt><dd>step in and walk (W A S D)</dd>
+      <dt>G</dt><dd>the field guide</dd>
+      <dt>M</dt><dd>sound on or off</dd>
+    </dl>
+    <nav>
+      <a href="https://github.com/adamkc/meadow-timeline" target="_blank" rel="noopener">How it was made</a>
+      <a id="support" href="" target="_blank" rel="noopener">Support this work</a>
+    </nav>
+  </div>
 </div>
 <div id="stats" hidden></div>
 <div id="error"></div>

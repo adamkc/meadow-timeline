@@ -3,6 +3,9 @@ import { SKY_VS, SKY_FS, TERRAIN_VS, TERRAIN_FS } from './shaders.js';
 import { createTrees } from './trees.js';
 import { createGrass } from './grass.js';
 import { createLogs } from './logs.js';
+import { createWildlife } from './wildlife.js';
+import { createSound } from './sound.js';
+import { createGuide } from './guide.js';
 import { createPost } from './post.js';
 import { noiseTexture } from './noise.js';
 
@@ -38,7 +41,9 @@ const quality = num('q', 1); // scales grass density and tree detail distance
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(num('fov', 55), 1, 0.25, 20000);
 const ditherShift = { value: 0 };
-const post = createPost(renderer, { bloom: num('bloom', 0.07), adapt: num('adapt', 1), grain: num('grain', 1), blend: num('blend', 0.9), sharpen: num('sharpen', 0.5), ditherShift });
+const sunDir = new THREE.Vector3(0, 1, 0), sunColor = new THREE.Color(3.3, 2.5, 1.55); // the direction is set once the data is loaded
+const post = createPost(renderer, { bloom: num('bloom', 0.07), adapt: num('adapt', 1), grain: num('grain', 1), blend: num('blend', 0.9), sharpen: num('sharpen', 0.5),
+  shafts: num('shafts', 0.5), sunDir, sunColor, ditherShift });
 
 // ---- data ---------------------------------------------------------------
 const loading = { asked: 0, done: 0 };
@@ -139,7 +144,7 @@ async function loadLevel(name, w, h) {
   const chanTexture = new THREE.DataTexture(chan, w, h, THREE.RGBAFormat, THREE.HalfFloatType);
   chanTexture.minFilter = chanTexture.magFilter = THREE.LinearFilter;
   chanTexture.needsUpdate = true;
-  return { surveyed, healed, fill, dist, arrive, threads, heights, chan: chanTexture, bake: bytesTexture(bake, w, h),
+  return { surveyed, healed, fill, dist, arrive, threads, cover: rg, heights, chan: chanTexture, bake: bytesTexture(bake, w, h),
     zone: bytesTexture(zone, w, h), stages, water, waterHealed, w, h };
 }
 // The trees come a column at a time, positions as differences from the tree
@@ -174,10 +179,10 @@ const far = { ...farData, origin: farOrigin, extent: new THREE.Vector2(FW * FC, 
 
 // ---- shared uniforms ---------------------------------------------------------
 const shared = {
-  uSunDir: { value: new THREE.Vector3(...meta.sun.dir).normalize() },
+  uSunDir: { value: sunDir.set(...meta.sun.dir).normalize() },
   uSunAltDeg: { value: meta.sun.altitude },
   uHorizonMaxDeg: { value: meta.horizonMaxDeg },
-  uSunColor: { value: new THREE.Color(3.3, 2.5, 1.55) },
+  uSunColor: { value: sunColor },
   uSkyAmbient: { value: new THREE.Color(0.74, 0.98, 1.46) },
   uGroundAmbient: { value: new THREE.Color(0.44, 0.36, 0.24) },
   uFogDensity: { value: num('fog', 0.0005) },
@@ -380,12 +385,13 @@ async function cardTexture(name, colorSpace) {
   t.anisotropy = 4;
   return t; // mipmapped, straight alpha
 }
-let trees = null;
+let trees = null, cardIndex = null, plantIndex = null; // the atlases' indexes are kept for the field guide's pictures
 if (params.get('trees') !== '0') {
   const [cards, cardA, cardB] = await Promise.all([
     get('cards.json').then((r) => r.json()),
     cardTexture('cards_a.webp', THREE.SRGBColorSpace), cardTexture('cards_b.webp', THREE.NoColorSpace),
   ]);
+  cardIndex = cards;
   trees = createTrees({ buffer: treeBuffer, life: meta.trees, cards, cardA, cardB, levels: [core, far], farOrigin, shared, groundAt: rootedAt, scene, quality });
 }
 // The full trees for close range (trunks, branches, sprigs: about 4 MB) are only
@@ -421,6 +427,7 @@ if (params.get('grass') !== '0') {
   texture.flipY = false;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
+  plantIndex = index;
   grass = createGrass({ levels: [core, far], shared, scene, floatLinear, plants: { index, texture }, quality });
 }
 
@@ -438,6 +445,7 @@ if (params.get('logs') !== '0' && trees) {
 }
 
 // ---- the tour ----------------------------------------------------------------
+// (Butterflies, dragonflies, swallows and a hawk are added once the meadow to circle is known: see below.)
 // By default the camera slowly circles one meadow lobe, so the changes are
 // watched in one place. ?tour=stream flies down the stream instead.
 const TOUR = params.get('tour') === 'stream' ? 'stream' : 'orbit';
@@ -470,17 +478,62 @@ const land = (() => {
   for (let i = 0; i < 96; i++) top = Math.max(top, groundAt(x + L.radius * Math.cos(i / 96 * 2 * Math.PI), z + L.radius * Math.sin(i / 96 * 2 * Math.PI)) + 150);
   return { x, z, y, r: L.radius, top, period: L.period };
 })();
-const wideOf = (v) => v * v * (3 - 2 * v);
-const meadowPoint = new THREE.Vector3(), meadowAim = new THREE.Vector3();
-function orbitPose(u, position, aim) {
+const wildlife = params.get('wildlife') === '0' ? null
+  : createWildlife({ core, shared, scene, floatLinear, meadow: { x: orbit.x, y: orbit.y, z: orbit.z } });
+const smooth01 = (v) => v * v * (3 - 2 * v);
+// The viewpoints (keys 1 to 6). Each gives the camera's position and what it
+// looks at; `u` is how far round its circle the camera is, for those that circle.
+function meadowPose(u, position, aim) {
   const a = orbit.start + u * 2 * Math.PI;
   const f = ((a / (2 * Math.PI)) % 1 + 1) % 1 * orbit.ring.length, j = Math.floor(f) % orbit.ring.length;
   const y = orbit.ring[j] + (orbit.ring[(j + 1) % orbit.ring.length] - orbit.ring[j]) * (f - Math.floor(f));
-  meadowPoint.set(orbit.x + orbit.r * Math.cos(a), y, orbit.z + orbit.r * Math.sin(a));
-  meadowAim.set(orbit.x, orbit.y + 1.5, orbit.z);
-  const wide = wideOf(state.wide);
-  position.set(land.x + land.r * Math.cos(a), land.top, land.z + land.r * Math.sin(a)).lerp(meadowPoint, 1 - wide);
-  aim.set(land.x, land.y, land.z).lerp(meadowAim, 1 - wide);
+  position.set(orbit.x + orbit.r * Math.cos(a), y, orbit.z + orbit.r * Math.sin(a));
+  aim.set(orbit.x, orbit.y + 1.5, orbit.z);
+}
+function valleyPose(u, position, aim) {
+  const a = orbit.start + u * 2 * Math.PI;
+  position.set(land.x + land.r * Math.cos(a), land.top, land.z + land.r * Math.sin(a));
+  aim.set(land.x, land.y, land.z);
+}
+// Standing on the ground at a fixed spot, looking one way with a slow glance from side to side.
+const EYE = 1.7;
+function standing(spot, eye = EYE, lookHeight = 1.0) {
+  const x = spot.x + coreOrigin.x, z = spot.z + coreOrigin.y, lx = spot.lookX + coreOrigin.x, lz = spot.lookZ + coreOrigin.y;
+  let y = null;
+  return (u, position, aim, dt = 0) => {
+    // The ground can drop away under this spot (the channel cutting down); the eye follows it down, not at once.
+    const target = groundAt(x, z) + eye;
+    y = y === null || dt === 0 ? target : y + (target - y) * (1 - Math.exp(-dt * 2.5));
+    position.set(x, y, z);
+    const glance = 0.16 * Math.sin(shared.uTime.value * 0.11), c = Math.cos(glance), s = Math.sin(glance);
+    aim.set(x + (lx - x) * c - (lz - z) * s, groundAt(lx, lz) + lookHeight, z + (lx - x) * s + (lz - z) * c);
+  };
+}
+// A fixed, map-like view of the meadow from the south, north at the top. Not
+// straight down: the trees are upright pictures and vanish seen from overhead.
+function planPose(u, position, aim) {
+  const v = meta.views.plan;
+  position.set(v.x + coreOrigin.x, orbit.y + v.height, v.z + coreOrigin.y + v.height * 0.55);
+  aim.set(v.x + coreOrigin.x, orbit.y, v.z + coreOrigin.y - 8);
+}
+const VIEWS = [
+  { key: 'meadow', name: 'Circling the meadow', air: true, period: orbit.period, pose: meadowPose },
+  { key: 'landscape', name: 'The whole valley', air: true, period: land.period, pose: valleyPose },
+  { key: 'canopy', name: 'Under the old trees', pose: standing(meta.views.canopy, EYE, 3.0) },
+  { key: 'rim', name: 'At the meadow\u2019s edge', pose: standing(meta.views.rim, 2.3, 0.0) },
+  { key: 'channel', name: 'In the channel', pose: standing(meta.views.channel, 1.45, 0.6) },
+  { key: 'plan', name: 'Like a map', air: true, period: orbit.period, pose: planPose },
+];
+// Going from one viewpoint in the air to another, the camera flies; to or from
+// the ground it cuts, with a fade, so it never passes through the trees.
+const flight = { from: 0, to: 0, t: 1, fromPos: new THREE.Vector3(), fromAim: new THREE.Vector3(), toPos: new THREE.Vector3(), toAim: new THREE.Vector3() };
+function orbitPose(u, position, aim, dt) {
+  VIEWS[flight.to].pose(u, flight.toPos, flight.toAim, dt);
+  if (flight.t >= 1) { position.copy(flight.toPos); aim.copy(flight.toAim); return; }
+  VIEWS[flight.from].pose(u, flight.fromPos, flight.fromAim, dt);
+  const k = smooth01(flight.t);
+  position.lerpVectors(flight.fromPos, flight.toPos, k);
+  aim.lerpVectors(flight.fromAim, flight.toAim, k);
 }
 const pathXZ = meta.path.map(([x, z]) => [x + coreOrigin.x, z + coreOrigin.y]);
 if (params.get('reverse') === '1') pathXZ.reverse();
@@ -540,8 +593,7 @@ const state = {
   stage: Math.min(LAST, Math.max(0, num('stage', 0))),
   stageTarget: Math.min(LAST, Math.max(0, num('stage', 0))),
   playing: false,
-  wide: params.get('view') === 'landscape' ? 1 : 0,       // 0 circling the one meadow, 1 out at the landscape view
-  wideTarget: params.get('view') === 'landscape' ? 1 : 0,
+  view: Math.max(0, VIEWS.findIndex((v) => v.key === params.get('view'))),   // which viewpoint (keys 1 to 6)
   ease: 1,                      // walking speed factor: 1 in the open, less among young trees
 };
 function applyTimeline() {
@@ -560,10 +612,10 @@ if (params.has('walk') && !still) {
 }
 
 function setHud() {
-  const common = '<b>1</b>-<b>7</b> or <b>F</b> to move through time · <b>Space</b> to play · <b>L</b> for the landscape view · <b>H</b> to show today\'s roads · <b>I</b> for render info';
+  const common = '<b>Space</b> to play · <b>F</b> for the next stage · <b>H</b> to show today\'s roads · <b>I</b> for render info';
   hud.innerHTML = state.mode === 'tour'
-    ? `<b>Drag</b> to look around · <b>Enter</b> to step in and walk · ${common}`
-    : `<b>W A S D</b> to walk · <b>Shift</b> to run · ${common} · <b>Esc</b> to return to the flight`;
+    ? `<b>1</b>-<b>6</b> for viewpoints · <b>Drag</b> to look around · <b>Enter</b> to step in and walk · ${common} · <b>G</b> for the field guide · <b>M</b> to mute`
+    : `<b>W A S D</b> to walk · <b>Shift</b> to run · ${common} · <b>G</b> for the field guide · <b>Esc</b> or <b>1</b>-<b>6</b> to return to a viewpoint`;
 }
 setHud();
 
@@ -602,17 +654,29 @@ function scrub(e) {
 }
 panel.track.addEventListener('pointerdown', (e) => { panel.track.setPointerCapture(e.pointerId); scrub(e); });
 panel.track.addEventListener('pointermove', (e) => { if (panel.track.hasPointerCapture(e.pointerId)) scrub(e); });
-// Out to the landscape view and back.
-const wideButton = document.getElementById('wide');
-function toggleWide() {
-  if (TOUR !== 'orbit') return;
+// The viewpoints: a row of buttons, and keys 1 to 6.
+const viewButtons = document.getElementById('views');
+flight.from = flight.to = state.view;
+function setView(i) {
+  if (TOUR !== 'orbit' || !VIEWS[i]) return;
   leaveWalk();
-  state.wideTarget = state.wideTarget > 0.5 ? 0 : 1;
-  wideButton.textContent = state.wideTarget > 0.5 ? 'Back to the meadow' : 'Landscape view';
+  if (i !== flight.to) {
+    const fly = VIEWS[i].air && VIEWS[flight.to].air && flight.t >= 1;
+    flight.from = flight.to; flight.to = i; flight.t = fly ? 0 : 1;
+    if (!fly) { state.look.set(0, 0, 0); lookOffset.yaw = lookOffset.pitch = 0; fadeIn(); }
+  }
+  state.view = i;
+  [...viewButtons.children].forEach((b, k) => b.classList.toggle('on', k === i));
 }
-wideButton.addEventListener('click', toggleWide);
-wideButton.textContent = state.wideTarget > 0.5 ? 'Back to the meadow' : 'Landscape view';
-if (TOUR !== 'orbit') wideButton.hidden = true;
+VIEWS.forEach((v, i) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.innerHTML = `<b>${i + 1}</b> ${v.name}`;
+  b.classList.toggle('on', i === state.view);
+  b.addEventListener('click', () => setView(i));
+  viewButtons.appendChild(b);
+});
+if (TOUR !== 'orbit') viewButtons.hidden = true;
 function togglePlay() {
   state.playing = !state.playing;
   if (state.playing && state.stage > LAST - 0.01) state.stage = state.stageTarget = 0; // from the top
@@ -658,9 +722,10 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyH') state.roads = state.roads > 0.5 ? 0 : 1;
-  if (e.code === 'KeyL') toggleWide();
-  if (e.code === 'KeyF') { state.stageTarget = (Math.round(state.stageTarget) + (e.shiftKey ? LAST : 1)) % (LAST + 1); state.playing = false; }
-  if (/^Digit[1-7]$/.test(e.code)) { state.stageTarget = Number(e.code.slice(5)) - 1; state.playing = false; }
+  if (e.code === 'KeyL') setView(state.view === 1 ? 0 : 1);
+  if (e.code === 'KeyF' || (e.code === 'ArrowRight' && state.mode === 'tour')) { state.stageTarget = (Math.round(state.stageTarget) + (e.shiftKey ? LAST : 1)) % (LAST + 1); state.playing = false; }
+  if (e.code === 'ArrowLeft' && state.mode === 'tour') { state.stageTarget = Math.max(0, Math.round(state.stageTarget) - 1); state.playing = false; }
+  if (/^Digit[1-6]$/.test(e.code)) setView(Number(e.code.slice(5)) - 1);
   if (e.code === 'Space') { togglePlay(); e.preventDefault(); }
   if (e.code === 'Escape') leaveWalk();
   if (e.code === 'Enter' && state.mode === 'tour') {
@@ -680,27 +745,28 @@ document.addEventListener('pointerlockchange', () => {
 
 // Keep the walker inside the data, with a margin so the edge stays hazy.
 const bounds = { x0: farOrigin.x + 60, x1: farOrigin.x + FW * FC - 60, z0: farOrigin.y + 60, z1: farOrigin.y + FH * FC - 60 };
-const EYE = 1.7;
 const tmp = new THREE.Vector3(), ahead = new THREE.Vector3();
 
 function updateTour(dt) {
-  state.wide = approach(state.wide, state.wideTarget, dt / 6); // six seconds out, six back
-  shared.uWide.value = wideOf(state.wide);
-  if (!still) state.u += dt / (TOUR === 'orbit' ? orbit.period + (land.period - orbit.period) * wideOf(state.wide) : pathLength / FLY_SPEED);
+  flight.t = Math.min(1, flight.t + dt / 6); // six seconds from one viewpoint in the air to another
+  const k = smooth01(flight.t), period = (VIEWS[flight.from].period ?? orbit.period) * (1 - k) + (VIEWS[flight.to].period ?? orbit.period) * k;
+  if (!still) state.u += dt / (TOUR === 'orbit' ? period : pathLength / FLY_SPEED);
   if (TOUR === 'stream' && state.u >= 1) { // loop back to the start
     state.u = 0;
     state.look.set(0, 0, 0);
     fadeIn();
   }
   if (TOUR === 'stream') state.u = Math.min(1, Math.max(0, state.u));
-  tourPose(state.u, camera.position, ahead);
+  tourPose(state.u, camera.position, ahead, dt);
+  // How far the camera is above the meadow says how map-like the picture should be (see uWide in shaders.js).
+  shared.uWide.value = smooth01(Math.min(1, Math.max(0, (camera.position.y - orbit.y - 150) / 350)));
   if (standAt) { // a still from a chosen spot (?at=x,z in metres from the window's centre), looking where the tour would
     camera.position.set(standAt[0], groundAt(standAt[0], standAt[1]) + FLY_HEIGHT, standAt[1]);
     if (lookTo) ahead.set(lookTo[0], groundAt(lookTo[0], lookTo[1]) + 0.4, lookTo[1]); // ?look=x,z aims at a point on the ground
     else if (TOUR === 'stream') { curve.getTangentAt(state.u, tmp); ahead.copy(camera.position).addScaledVector(tmp, 70); }
   }
   // Ease the aim point so bends in the path turn the camera gently.
-  if (state.look.lengthSq() === 0 || still) state.look.copy(ahead);
+  if (state.look.lengthSq() === 0 || still || TOUR === 'orbit') state.look.copy(ahead);
   else state.look.lerp(ahead, 1 - Math.exp(-dt * 1.2));
   camera.lookAt(state.look);
   if (!lookOffset.held && !still) { // drift back to the tour's own direction
@@ -742,6 +808,23 @@ const SCALE_MIN = 0.62;
 const scaleMax = () => Math.min(num('maxscale', Math.min(2 * dpr, 2.5)), Math.sqrt(9e6 / (window.innerWidth * window.innerHeight)));
 let scale = num('scale', Math.min(1, dpr)), detail = 1, detailShown = 1;
 const adaptive = !params.has('scale') && !still;
+// What the scene settled on last time on this GPU is where it starts this time.
+const QUALITY_KEY = 'meadow.quality';
+function rememberQuality() {
+  try { localStorage.setItem(QUALITY_KEY, JSON.stringify({ gpu: gpuName, scale: +scale.toFixed(3), detail: +detail.toFixed(3), w: window.innerWidth, h: window.innerHeight })); } catch {}
+}
+function recallQuality() {
+  if (!adaptive) return;
+  try {
+    const q = JSON.parse(localStorage.getItem(QUALITY_KEY) || 'null');
+    if (!q || q.gpu !== gpuName) return;
+    // A larger window than last time gets fewer pixels per pixel, to start at about the same cost.
+    const area = (q.w * q.h) / (window.innerWidth * window.innerHeight);
+    scale = Math.min(scaleMax(), Math.max(SCALE_MIN, q.scale * Math.sqrt(Math.min(1, area))));
+    detail = detailShown = Math.min(1, Math.max(0.25, q.detail));
+    grass?.setDetail(detail); trees?.setDetail(detail);
+  } catch {}
+}
 function resize() {
   const size = (k) => [Math.max(2, Math.round(window.innerWidth * k)), Math.max(2, Math.round(window.innerHeight * k))];
   const [w, h] = size(Math.min(scale, dpr)); // the canvas never has more pixels than the screen
@@ -751,7 +834,6 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
-resize();
 
 // How long the GPU spends on a frame, where the browser will say. (The time
 // between frames only says whether the screen's refresh rate was met.)
@@ -786,14 +868,79 @@ const gpuName = (() => {
   return (inner ? inner[1].split(',')[1] ?? inner[1] : full).replace(/\(0x[0-9a-f]+\)/i, '').replace(/Direct3D.*$/, '').replace(/\s+/g, ' ').trim();
 })();
 // I shows what the scene is running on and at what quality.
+recallQuality();
+resize();
 const statsEl = document.getElementById('stats');
 let statsShown = num('info', 0) > 0, statsAt = 0;
 window.addEventListener('keydown', (e) => { if (e.code === 'KeyI') { statsShown = !statsShown; statsAt = 0; statsEl.hidden = !statsShown; } });
 statsEl.hidden = !statsShown;
 
+// ---- sound -----------------------------------------------------------------------
+// The sound follows the place and the stage (sound.js). Browsers let it start
+// only on a click or a key, so it starts with the visitor's first one.
+const sound = params.get('sound') === '0' ? null : createSound();
+const muteButton = document.getElementById('mute');
+function showMute() { muteButton.textContent = sound && !sound.muted ? 'Sound on' : 'Sound off'; muteButton.classList.toggle('off', !sound || sound.muted); }
+if (sound) {
+  muteButton.addEventListener('click', () => { sound.start(); sound.toggleMute(); showMute(); });
+  window.addEventListener('keydown', (e) => { if (e.code === 'KeyM') { sound.toggleMute(); showMute(); } });
+  for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, () => sound.start(), { once: true });
+} else muteButton.hidden = true;
+showMute();
+let soundAt = 0;
+function updateSound(now) {
+  if (!sound || now < soundAt) return;
+  soundAt = now + 150;
+  const p = camera.position, stage = state.stage;
+  const inCore = p.x > coreOrigin.x + 1 && p.z > coreOrigin.y + 1 && p.x < coreOrigin.x + N - 1 && p.z < coreOrigin.y + N - 1;
+  let canopy = 0, water = 0, cut = 0;
+  if (inCore) {
+    const i = Math.floor(p.z - coreOrigin.y) * N + Math.floor(p.x - coreOrigin.x);
+    // Canopy over the camera, from the same baked layers the shaders blend (one per key stage).
+    const layers = meta.stages.keys.length, k = Math.min(layers - 1, Math.max(0, stage - meta.stages.keys[0])), k0 = Math.floor(k), k1 = Math.min(layers - 1, k0 + 1);
+    canopy = (core.cover[(k0 * N * N + i) * 2 + 1] * (1 - (k - k0)) + core.cover[(k1 * N * N + i) * 2 + 1] * (k - k0)) / 255;
+    // Running water: one of the meadow's small channels until the headcut has passed, or the stream itself.
+    const since = stage - (CUT[0] + CUT[1] * core.arrive[i]);
+    cut = smoothstep(0, CUT[2], since);
+    const thread = Math.min(1, Math.max(0, 1 + core.threads[i] / 5)) * (1 - smoothstep(0, 0.3, since));
+    water = Math.max(thread, Math.min(1, Math.max(0, 1 - core.dist[i] / 16)));
+  }
+  sound.update({ stage, height: Math.max(0, p.y - groundAt(p.x, p.z)), canopy, water, cut });
+}
+
+// ---- the field guide ---------------------------------------------------------------
+const guide = createGuide({ plants: plantIndex, cards: cardIndex });
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyG' && !document.body.classList.contains('waiting')) guide.toggle();
+  if (e.code === 'Escape' && guide.open) guide.toggle(false);
+});
+
+// ---- the start screen ------------------------------------------------------------
+// The scene is already running behind it, blurred, so its quality has settled
+// by the time the visitor begins; and the click that begins is what lets the
+// sound start. Fixed frames (?u=) and ?start=0 go straight in.
+const startScreen = document.getElementById('start');
+function begin() {
+  if (!document.body.classList.contains('waiting')) return;
+  document.body.classList.remove('waiting');
+  startScreen.setAttribute('aria-hidden', 'true');
+  sound?.start();
+  canvas.focus?.();
+}
+if (still || params.get('start') === '0') { document.body.classList.add('instant'); document.body.classList.remove('waiting'); startScreen.hidden = true; }
+else {
+  document.getElementById('begin').addEventListener('click', begin);
+  window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') { if (document.body.classList.contains('waiting')) { begin(); e.stopImmediatePropagation(); e.preventDefault(); } } }, true);
+}
+{ // Where the support link goes is set in index.html (data-support on <body>); with none, there is no button.
+  const support = document.getElementById('support'), url = document.body.dataset.support;
+  if (url) support.href = url; else support.hidden = true;
+}
+
 // ---- frame loop --------------------------------------------------------------
 let last = performance.now(), frames = 0, frameMs = 16, sinceResize = 0, renderMs = 0;
 let stillTime = num('time', 0); // the clock of a fixed frame (?u=)
+let slowRun = 0;                // slow readings in a row (see the quality control in draw)
 let manual = false;
 const bench = params.has('bench'), benchPixel = new Uint8Array(4);
 window.__meadow = {
@@ -808,7 +955,8 @@ window.__meadow = {
   },
   stats() {
     const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
-    return { ms: bench ? renderMs : frameMs, gpuMs: gpu.known ? gpu.ms : null, scale, detail: detailShown, stage: state.stage, nearTrees: trees?.nearCount ?? 0, ease: state.ease, mode: state.mode, position: camera.position.toArray(), ground: groundAt(camera.position.x, camera.position.z), calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
+    return { ms: bench ? renderMs : frameMs, gpuMs: gpu.known ? gpu.ms : null, scale, detail: detailShown, stage: state.stage, view: VIEWS[state.view].key,
+      sound: sound ? { running: sound.running, muted: sound.muted } : null, nearTrees: trees?.nearCount ?? 0, ease: state.ease, mode: state.mode, position: camera.position.toArray(), ground: groundAt(camera.position.x, camera.position.z), calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       gpu: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'unknown' };
   },
 };
@@ -846,6 +994,7 @@ function draw(now) {
   gpuBegin();
   post.render(scene, camera);
   gpuEnd();
+  updateSound(now);
   if (bench) { // wait for the GPU so the frame time is the true cost
     const gl = renderer.getContext();
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, benchPixel);
@@ -862,7 +1011,10 @@ function draw(now) {
       // a second cannot be held.
       const cost = gpu.ms, top = scaleMax(), toward = (ms) => scale * Math.min(1.35, Math.max(0.75, Math.sqrt(ms / cost)));
       if (scale > 1 && cost > 11.5) next = Math.max(1, toward(9));
-      else if (cost > 30) { if (scale > SCALE_MIN) next = Math.max(SCALE_MIN, toward(24)); else detail = Math.max(0.25, detail * 0.85); }
+      else if (cost > 30) {
+        // (Thinning the plants takes two slow readings in a row: one may be the machine doing something else.)
+        if (scale > SCALE_MIN) next = Math.max(SCALE_MIN, toward(24)); else if (++slowRun >= 2) detail = Math.max(0.25, detail * 0.85);
+      }
       else if (detail < 1) { if (cost < 20) detail = Math.min(1, detail * 1.12); }
       else if (scale < 1) { if (cost < 14) next = Math.min(1, toward(20)); }
       else if (cost < 7 && scale < top) next = Math.min(top, toward(9));
@@ -871,7 +1023,9 @@ function draw(now) {
       if (slow) { if (scale > SCALE_MIN) next = Math.max(SCALE_MIN, scale * 0.87); else detail = Math.max(0.25, detail * 0.85); }
       if (fast) { if (detail < 1) detail = Math.min(1, detail * 1.12); else next = Math.min(1, dpr, scale * 1.07); }
     }
+    if (!(gpu.known && gpu.ms > 30)) slowRun = 0;
     if (Math.abs(next - scale) > 0.04 * scale) { scale = next; resize(); gpu.fresh = true; sinceResize = -20; }
+    if (frames % 240 < 41) rememberQuality();
   }
   // Plants are thinned and restored gradually, each one shrinking or growing, not all at once.
   if (detailShown !== detail) {
@@ -885,6 +1039,6 @@ function draw(now) {
       + ` · ${scale.toFixed(2)}x resolution (${renderer.domElement.width} x ${renderer.domElement.height} shown)` + ` · plants ${Math.round(detailShown * 100)}%`;
   }
   window.__meadow.frames = ++frames;
-  if (frames === 2) { loading.shown = true; veil.textContent = ''; veil.style.opacity = 0; document.body.dataset.ready = '1'; }
+  if (frames === 2) { loading.shown = true; veil.textContent = ''; veil.style.opacity = 0; document.body.dataset.ready = '1'; document.getElementById('begin').disabled = false; }
 }
 requestAnimationFrame(frame);

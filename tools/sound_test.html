@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Sound test</title>
+<!-- Renders the scene's sound offline for a few situations and hands the samples to tools/sound_test.mjs. -->
+<script type="module">
+import { build, mixFor } from '../src/sound.js';
+const SR = 44100, SECONDS = 24;
+const cases = {
+  wet_meadow_by_the_channel: { stage: 0, height: 1.5, canopy: 0, water: 1, cut: 0 },
+  drying_meadow: { stage: 2.6, height: 1.7, canopy: 0, water: 0.1, cut: 1 },
+  in_the_trench: { stage: 3, height: 1.5, canopy: 0, water: 1, cut: 1 },
+  mature_forest: { stage: 6, height: 1.7, canopy: 0.9, water: 0, cut: 1 },
+  circling_above_wet_meadow: { stage: 0, height: 60, canopy: 0, water: 0.3, cut: 0 },
+  whole_valley: { stage: 3, height: 600, canopy: 0, water: 0, cut: 0 },
+};
+const solo = ['grass', 'pines', 'air', 'brook', 'insects', 'frogs', 'blackbirds', 'meadowBirds', 'forestBirds'];
+async function render(mix) {
+  const ac = new OfflineAudioContext(2, SR * SECONDS, SR);
+  const graph = build(ac, 7);
+  graph.out.gain.value = 0.8;
+  graph.apply(mix, 0, 0.01);
+  graph.tick(SECONDS);
+  const buffer = await ac.startRendering();
+  return [buffer.getChannelData(0), buffer.getChannelData(1)];
+}
+const out = { sampleRate: SR, cases: {}, solo: {} };
+window.__samples = {};
+for (const [name, where] of Object.entries(cases)) {
+  const [l, r] = await render(mixFor(where));
+  window.__samples[name] = l;
+  let sum = 0, peak = 0, bad = 0;
+  for (let i = SR; i < l.length; i++) { const v = l[i], w = r[i]; sum += (v * v + w * w) / 2; peak = Math.max(peak, Math.abs(v), Math.abs(w)); if (!Number.isFinite(v)) bad++; }
+  out.cases[name] = { rms: Math.sqrt(sum / (l.length - SR)), peak, bad, mix: mixFor(where) };
+}
+for (const key of solo) {
+  const mix = Object.fromEntries(solo.map((k) => [k, k === key ? 1 : 0]));
+  const [l] = await render(mix);
+  let sum = 0, peak = 0;
+  for (let i = SR; i < l.length; i++) { sum += l[i] * l[i]; peak = Math.max(peak, Math.abs(l[i])); }
+  out.solo[key] = { rms: Math.sqrt(sum / (l.length - SR)), peak };
+}
+window.__sound = out;
+// A stretch of one channel as 16-bit samples in base64, for spectrograms.
+window.__chunk = (name, start, length) => {
+  const s = window.__samples[name].subarray(start, start + length), b = new Int16Array(s.length);
+  for (let i = 0; i < s.length; i++) b[i] = Math.max(-32767, Math.min(32767, Math.round(s[i] * 32767)));
+  const bytes = new Uint8Array(b.buffer); let str = '';
+  for (let i = 0; i < bytes.length; i += 32768) str += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+  return btoa(str);
+};
+</script>

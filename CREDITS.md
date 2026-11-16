@@ -17,6 +17,9 @@ CC0 (public domain). Attribution is not required; it is given here as a courtesy
 - Ground textures (`data/ground_*.webp`): `forrest_ground_03`,
   `river_small_rocks`, `dirt_floor`.
 
+The animals (`src/wildlife.js`) and all of the sound (`src/sound.js`) are made
+in code for this project; there are no sound files.
+
 three.js is MIT licensed (see `vendor/three/LICENSE`).
 
 Terrain: USGS 3DEP 1 m lidar DEM (public domain), processed with ERASER.

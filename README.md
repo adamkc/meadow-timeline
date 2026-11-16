@@ -1,11 +1,13 @@
-# Meadow render
+# How a meadow is lost
 
 A browser scene on a real 1 m lidar DEM (Nye Meadow) that tells how a wet
 meadow is lost, following the stream evolution models (Schumm's channel
-evolution model; Cluer and Thorne's stage 0). The camera slowly circles one
-meadow lobe while a timeline at the bottom of the page moves through seven
-stages, blending smoothly between them. A landscape view flies out to show
-every meadow in the valley going through the same change. Built toward a
+evolution model; Cluer and Thorne's stage 0). A timeline at the bottom of the
+page moves through seven stages, blending smoothly between them, and the
+change can be watched from six places: circling the meadow, high over the
+whole valley, from under the old trees at its edge, from the bank, from in the
+channel, and like a map. The sound, the insects and the birds change with it,
+and a field guide lists what grows and lives there. Built toward a
 "prerendered film, then step in" page. Plain three.js, no build step yet.
 
 1. Wet meadow: water spreads through many small sandy channels; sedge and
@@ -34,6 +36,8 @@ WebGL 2; about 20 MB to load).
 ![Bracken fern on the floor of the mature forest](media/ferns.jpg)
 
 ![All seven stages from the circling view](media/stages.jpg)
+
+![From under the old trees at stages 1, 5 and 7; from the meadow's edge; from in the channel before and after it cuts down](media/viewpoints.jpg)
 
 ![The landscape view: every meadow in the window, and the streams that join them](media/landscape.jpg)
 
@@ -72,8 +76,10 @@ Then open <http://localhost:8137>.
 |---|---|
 | Timeline track, stage names | drag or click to move through time |
 | Play, Space | run the whole story, about ten seconds a stage |
-| 1 to 7, F (Shift+F back) | jump to a stage |
-| Landscape view, L | fly out to a high circle over all the valley's meadows, and back |
+| F or the right arrow (Shift+F, left arrow back) | the next stage |
+| 1 to 6, or the list at the right | the six viewpoints (below) |
+| G | the field guide |
+| M | sound on or off |
 | H | show today's roads (and the surveyed terrain around them) |
 | Drag | look around |
 | Enter | step in and walk (W A S D, Shift to run, Esc to return to the circling view) |
@@ -84,10 +90,25 @@ told otherwise (Settings > System > Display > Graphics > add Chrome > High
 performance), and the scene then runs at about 0.6x resolution. Press I to see
 which one is in use.
 
+The six viewpoints:
+
+| | Viewpoint | What it shows |
+|---|---|---|
+| 1 | Circling the meadow | the whole sequence in one place, from above the treetops |
+| 2 | The whole valley | every meadow in the window, and the streams that join them |
+| 3 | Under the old trees | from the forest at the meadow's edge, looking out: the open meadow fills with trees |
+| 4 | At the meadow's edge | from the bank the trench will have, looking across it |
+| 5 | In the channel | at the water, as the headcut comes and the bed drops away |
+| 6 | Like a map | fixed, from the south, north at the top |
+
+Between the views in the air the camera flies; to and from the ground it cuts.
+
 URL options: `&stage=0..6` (fractions allowed), `?u=0.3` (position around the
 circle, paused, for stills), `&orbit=x,z` (circle another spot, metres from the
 window's centre), `&radius=`, `&height=`, `&period=` (seconds per circuit),
-`&view=landscape` (start in the landscape view), `&tour=stream` (fly down the
+`&view=meadow|landscape|canopy|rim|channel|plan` (start at that viewpoint),
+`&start=0` (no start screen), `&sound=0`, `&wildlife=0`, `&shafts=` (strength
+of the light shafts, 0 for none), `&tour=stream` (fly down the
 stream instead), `&yaw=`, `&pitch=`, `&at=x,z`
 (stand at a point), `&look=x,z` (with `at`), `&walk=x,z,heading` (start on
 foot), `&roads=1`, `&time=` (freezes
@@ -131,8 +152,11 @@ puppeteer-core` in `%TEMP%\meadow_tools`) and write to `shots/tmp` (`OUT=`
 changes that). `SHOT_GPU=high` uses the discrete GPU. Only `bench=1` frame
 times are real. `tools/timeline_test.mjs`, `tools/walk_test.mjs` and
 `tools/live.mjs` (how resolution and plant density settle on a GPU), run with
-Windows Node from that folder, exercise the timeline controls, walking and the
-quality control.
+Windows Node from that folder, exercise the start screen, the timeline
+controls, the viewpoints, walking and the quality control.
+`tools/sound_test.mjs` renders the sound offline for six situations, prints
+each one's loudness and peak and each layer's on its own, and saves them as
+WAV files.
 
 Flicker cannot be seen in a still, so it is measured:
 
@@ -225,6 +249,14 @@ the picture without blending over time.
   gone), about one in ten survives to make the mature forest, and firs come up
   underneath late on. Far trees are pictures of scanned trees from eight sides;
   within about 25 m they are real trunks and branches with sprig cards.
+- **The forest is a patchwork**, not an even cover. Around the meadows: stands
+  of different ages a few hundred metres across, taller and thicker in the
+  draws and on shady slopes than on ridges and sunny ones, trees in clumps
+  with gaps between, openings on about a tenth of the ground, a few old giants,
+  a young dense skirt along the meadows' edges, pine on the sunny and young
+  ground and fir in the shade. Over the lost meadow: glades where the conifers
+  never take hold (about a seventh of it), and a stand that grows taller in
+  some patches than in others.
 - **Tree shade**: baked at stages 3 to 7 and blended between them.
 - **Water**: painted on the terrain. The small channels run over sand; the
   incised channel has a cobble bed and bars. Far off, a stream is drawn at
@@ -236,6 +268,33 @@ the picture without blending over time.
   terrain with no vertical exaggeration: the whole lidar DEM of the watershed
   (4.2 by 2.8 km), streams where flow accumulation puts them. The last 220 m
   before the watershed boundary, where the data ends, dissolve into the sky.
+- **Viewpoints** (`main.js`, `prep_terrain.py`): the three on the ground are
+  chosen from the terrain: in the channel where it has most to cut, on the
+  sunward bank just outside what will be cut away, and a dozen metres into
+  standing forest where looking back at the meadow is looking toward the sun.
+  No tree stands within 2 m of any of them. In the channel the eye follows the
+  bed down as it drops.
+- **Wildlife** (`wildlife.js`): butterflies over the flowers and dragonflies
+  over the water, in a ring that travels with the camera like the plants;
+  swallows low over the open meadow; a hawk circling. Each is a body and two
+  wings shaped, coloured and flown by the vertex shader from the clock, and
+  each follows the timeline: the insects go as the meadow dries, the swallows
+  when the trees close in.
+- **Sound** (`sound.js`): made as it plays with the Web Audio API; there are no
+  sound files. Wind in grass, wind in pines, running water and grasshoppers
+  are filtered noise; frogs, a blackbird, a sparrow, a chickadee and a
+  nuthatch are oscillators with a pitch glide and a loudness curve per note; a
+  woodpecker is a roll of short thumps. What is heard depends on the stage, on
+  the camera's height, on the canopy overhead and on how near running water
+  is, so the wet meadow's chorus thins to wind in the pines as the timeline
+  runs.
+- **Field guide** (`guide.js`): the plants and animals in the scene, with
+  pictures taken from the scene's own atlases; eight rarer meadow specialists
+  that are not drawn, each with where it lives; and two species that have not
+  been found in the meadows for years and may be extinct.
+- **Start screen**: the scene is already running behind it, blurred, so the
+  quality has settled before the visitor begins; and the click that begins is
+  what browsers require before sound may start.
 - **Camera**: circles one meadow lobe every 170 seconds, so the whole sequence
   is watched in one place. Its height follows the ground and the tallest trees
   that ever stand near the path, 18 m clear of their tops, smoothed so it rises
@@ -246,12 +305,14 @@ the picture without blending over time.
   on the terrace as the thicket thins.
 - **Post** (`post.js`): 4x multisampled HDR; each frame blended with the ones
   before it, reprojected through the depth buffer (temporal anti-aliasing),
-  which is what keeps fine foliage from shimmering as the camera moves; bloom,
+  which is what keeps fine foliage from shimmering as the camera moves; a soft
+  glow of light shafts toward the sun, where trees do not block it; bloom,
   exposure that adapts to the view, filmic tone curve, vignette, grain.
 - **Quality** (`main.js`): resolution follows the GPU's measured time per
   frame. A strong GPU renders up to twice the screen's resolution and averages
   it down; a weak one drops to 0.62x, and then thins plants (each shrinking
   away, not vanishing) and shortens the range of 3D trees, to hold 30 fps.
+  What it settled on is remembered for the next visit on the same GPU.
 - **Nothing pops**: plants grow and shrink at the edge of their ring, where the
   ground stops suiting them and where one kind gives way to another; tree
   pictures dissolve from one side view to the next; the outer plant ring is
@@ -292,8 +353,49 @@ and forests; where each grows in the scene is a rule of thumb built on them.
 - Not found in a source and placed on general knowledge: Bigelow's sneezeweed
   in moist meadow.
 
+## Field guide sources
+
+- Yosemite toad: [U.S. Fish and Wildlife Service](https://www.fws.gov/species/yosemite-toad-anaxyrus-canorus).
+- Sierra Nevada yellow-legged frog: [U.S. Fish and Wildlife Service](https://fws.gov/node/44250).
+- Willow flycatcher and great gray owl:
+  [Institute for Bird Populations](https://www.birdpop.org/docs/pubs/Wilkerson_and_Siegel_2002_Establishing_a_Southern_Sierra_Meadows_IBA.pdf),
+  [National Park Service](https://home.nps.gov/yose/learn/nature/birds.htm).
+- Sierra sulphur: [California Conservation Genomics Project](https://www.ccgproject.org/species/colias-behrii-sierra-sulphur-butterfly).
+- Sierra Nevada blue: [Butterflies and Moths of North America](https://www.butterfliesandmoths.org/node/1399769),
+  [Butterflies of Oregon](https://www.butterfliesoforegon.com/agriades-podarce),
+  [UC Davis](https://butterfly.ucdavis.edu/taxonomy/agriades).
+- Franklin's bumble bee: [Federal Register listing, 2021](https://www.govinfo.gov/content/pkg/FR-2021-08-24/pdf/2021-17832.pdf),
+  [Xerces Society](https://www.xerces-dev.org/sites/default/files/2019-10/sfs-iihy-bombus-franklini.pdf),
+  [California Department of Fish and Wildlife](https://wildlife.ca.gov/Data/CNDDB/News/legal-status-of-bumble-bees-in-california).
+  It lived in southern Oregon as well as California, and nowhere near the
+  Sierra Nevada, so it has no star; and since it has not been found for
+  years it is under "Not seen in the meadows now".
+- Single-flowered mariposa lily: [California Native Plant Society](https://rareplants.cnps.org/Plants/TaxonReport/46),
+  [Calflora](https://calflora.org/app/taxon?crn=1293).
+- Considered and left out: the Atossa fritillary (*Speyeria adiaste atossa*),
+  an extinct California butterfly, because nothing found says it was a meadow
+  species.
+- Bolander's clover: [California Native Plant Society](https://rareplants.cnps.org/Plants/TaxonReport/1527).
+- Yosemite bog orchid: [North American Orchid Center](https://goorchids.northamericanorchidcenter.org/species/platanthera/yosemitensis/).
+
+The animals named for the sounds (treefrog, blackbird, sparrow, chickadee,
+nuthatch, woodpecker) and the swallows and hawk are likenesses, not records
+from this site.
+
+## Ideas borrowed
+
+[Abyssal Garden](https://github.com/Noniv/abyssal-garden) (MIT) is where the
+numbered viewpoints, sound made in code, simple animals flown by the shader,
+the running scene behind the start screen and remembering the settled quality
+came from as ideas. None of its code is used here.
+
 ## Known gaps
 
+- The sound has been rendered and measured (levels, and its structure in
+  spectrograms) but not listened to by its author. Expect it to need tuning by
+  ear.
+- The animals are a few triangles each: readable as what they are from some
+  metres off, no more. Birds are drawn larger than life to be seen at all.
 - Motion has been measured (see flicker above) but not judged by eye from
   here. With blending over time, under 0.1% of pixels flicker per frame from
   the circling view (about 3% without); the cost is a slightly softer picture

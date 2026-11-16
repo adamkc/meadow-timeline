@@ -8,7 +8,7 @@ for (const [label, query] of [['open meadow (stage 1)', 'walk=-178,-39,90&stage=
   const page = await browser.newPage();
   page.on('pageerror', (e) => console.log('pageerror:', e.stack.slice(0, 400)));
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404')) console.log('console error:', m.text().slice(0, 300)); });
-  await page.goto('http://localhost:8137/?' + query);
+  await page.goto('http://localhost:8137/?start=0&' + query);
   await page.waitForFunction(() => window.__meadow && window.__meadow.frames > 60, { timeout: 120000 });
   const a = await page.evaluate(() => window.__meadow.stats());
   await page.keyboard.down('KeyW');

@@ -84,11 +84,35 @@ void main() {
   gl_FragColor = vec4(unsquash(mix(c, h, keep)), 1.0);
 }
 `;
+// Shafts of light: looking toward the sun, the air between the trees is lit
+// where the sun reaches it and dark where a crown is in the way. For each
+// pixel this steps toward the sun's place on the screen and counts how much of
+// the way is open sky. Drawn at half size; it is a soft effect.
+const SHAFT_FS = /* glsl */ `
+uniform sampler2D uDepth; uniform vec2 uSun; uniform float uAspect;
+varying vec2 vUv;
+void main() {
+  vec2 toSun = uSun - vUv;
+  float reach = min(1.0, 0.75 / max(length(toSun * vec2(uAspect, 1.0)), 1e-3)); // no farther than three quarters of the screen's height
+  vec2 stepUv = toSun * reach / 28.0;
+  float lit = 0.0, weight = 1.0, total = 0.0;
+  vec2 at = vUv;
+  for (int i = 0; i < 28; i++) {
+    at += stepUv;
+    float open = step(0.99999, texture2D(uDepth, at).r) * step(0.0, at.y) * step(at.y, 1.0) * step(0.0, at.x) * step(at.x, 1.0);
+    lit += open * weight; total += weight; weight *= 0.95;
+  }
+  // Strongest near the sun, gone by a screen's height from it.
+  float nearSun = 1.0 - smoothstep(0.05, 1.0, length(toSun * vec2(uAspect, 1.0)));
+  gl_FragColor = vec4(vec3(lit / total * nearSun * nearSun), 1.0);
+}
+`;
 const FINAL_FS = /* glsl */ `
 uniform sampler2D uScene; uniform sampler2D uBloom; uniform sampler2D uCoarse;
 uniform float uBloomAmount; uniform float uLevels; uniform float uSeed; uniform float uAdapt; uniform float uGrain;
 uniform vec2 uSpread; // supersampling: how far apart to take four samples of the scene, 0 when it is the canvas's own size
 uniform vec3 uSharpen; // one texel of the scene, and how much to sharpen it (0 for none)
+uniform sampler2D uShafts; uniform vec3 uShaftColor; // light shafts toward the sun, and their colour times their strength (0 when the sun is off screen)
 varying vec2 vUv;
 float hash12(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * 0.1031);
@@ -116,6 +140,7 @@ vec3 scenePixel() {
 }
 void main() {
   vec3 c = mix(scenePixel(), texture2D(uBloom, vUv).rgb / uLevels, uBloomAmount);
+  if (uShaftColor.r > 0.0) c += uShaftColor * texture2D(uShafts, vUv).r;
   // Exposure follows the scene the way an eye or a camera does: brighter in
   // forest shade, darker facing the sun. The coarsest blur level stands in for
   // the average brightness, so it changes smoothly as the view moves.
@@ -139,7 +164,7 @@ const SHIFTS = Array.from({ length: 16 }, (_, i) => {
   return [halton(i + 1, 2) - 0.5, halton(i + 1, 3) - 0.5];
 });
 
-export function createPost(renderer, { bloom = 0.07, adapt = 1, grain = 1, blend = 0.9, sharpen = 0.5, ditherShift = null } = {}) {
+export function createPost(renderer, { bloom = 0.07, adapt = 1, grain = 1, blend = 0.9, sharpen = 0.5, shafts = 0.5, sunDir = null, sunColor = null, ditherShift = null } = {}) {
   const LEVELS = 5;
   const hdr = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, depthBuffer: true,
     ...(blend > 0 ? { depthTexture: new THREE.DepthTexture(1, 1) } : {}) });
@@ -151,6 +176,9 @@ export function createPost(renderer, { bloom = 0.07, adapt = 1, grain = 1, blend
   const pass = (fragmentShader, uniforms) => new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader, uniforms, depthTest: false, depthWrite: false });
   const downMat = pass(DOWN_FS, { uTex: { value: null }, uTexel: { value: new THREE.Vector2() }, uFirst: { value: 0 } });
   const upMat = pass(UP_FS, { uTex: { value: null }, uAdd: { value: null }, uTexel: { value: new THREE.Vector2() } });
+  const shaftTarget = shafts > 0 && history && sunDir ? half() : null;
+  const shaftMat = pass(SHAFT_FS, { uDepth: { value: hdr.depthTexture ?? null }, uSun: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
+  const sunPoint = new THREE.Vector4();
   const blendMat = pass(BLEND_FS, {
     uCurrent: { value: hdr.texture }, uHistory: { value: null }, uDepth: { value: hdr.depthTexture ?? null },
     uReproject: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() }, uKeep: { value: 0 },
@@ -158,6 +186,7 @@ export function createPost(renderer, { bloom = 0.07, adapt = 1, grain = 1, blend
   const finalMat = pass(FINAL_FS, {
     uScene: { value: hdr.texture }, uBloom: { value: null }, uBloomAmount: { value: bloom },
     uLevels: { value: LEVELS }, uSeed: { value: 0 }, uCoarse: { value: down[LEVELS - 1].texture }, uAdapt: { value: adapt }, uGrain: { value: grain }, uSpread: { value: new THREE.Vector2() }, uSharpen: { value: new THREE.Vector3() },
+    uShafts: { value: shaftTarget ? shaftTarget.texture : null }, uShaftColor: { value: new THREE.Vector3() },
   });
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), downMat);
   quad.frustumCulled = false;
@@ -177,6 +206,7 @@ export function createPost(renderer, { bloom = 0.07, adapt = 1, grain = 1, blend
     setSize(w, h, outW = w, outH = h) {
       hdr.setSize(w, h);
       if (history) for (const t of history) t.setSize(w, h);
+      if (shaftTarget) { shaftTarget.setSize(Math.max(1, outW >> 1), Math.max(1, outH >> 1)); shaftMat.uniforms.uAspect.value = outW / outH; }
       finalMat.uniforms.uSharpen.value.set(1 / w, 1 / h, history ? sharpen : 0);
       fresh = true;
       finalMat.uniforms.uSpread.value.set(w > outW ? (w / outW - 1) * 0.5 / w : 0, h > outH ? (h / outH - 1) * 0.5 / h : 0);
@@ -212,6 +242,21 @@ export function createPost(renderer, { bloom = 0.07, adapt = 1, grain = 1, blend
         result = to;
       }
       finalMat.uniforms.uScene.value = result.texture;
+      // Light shafts, when the sun is in front of the camera and on or near the screen.
+      let shaftStrength = 0;
+      if (shaftTarget) {
+        sunPoint.set(camera.position.x + sunDir.x * 1e5, camera.position.y + sunDir.y * 1e5, camera.position.z + sunDir.z * 1e5, 1).applyMatrix4(viewProj);
+        if (sunPoint.w > 0) {
+          const sx = sunPoint.x / sunPoint.w * 0.5 + 0.5, sy = sunPoint.y / sunPoint.w * 0.5 + 0.5;
+          const off = Math.max(Math.abs(sx - 0.5) - 0.5, Math.abs(sy - 0.5) - 0.5, 0); // how far off the screen, in screens
+          shaftStrength = shafts * Math.max(0, 1 - off / 0.45);
+          if (shaftStrength > 0) {
+            shaftMat.uniforms.uSun.value.set(sx, sy);
+            draw(shaftMat, shaftTarget);
+          }
+        }
+      }
+      finalMat.uniforms.uShaftColor.value.set(sunColor.r, sunColor.g, sunColor.b).multiplyScalar(shaftStrength * 0.16);
       let src = result;
       for (let i = 0; i < LEVELS; i++) {
         downMat.uniforms.uTex.value = src.texture;

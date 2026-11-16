@@ -686,29 +686,122 @@ def add(r, c, hmax, birth, death, young, mature, snag, meadow):
 
 
 sp = args.tree_spacing
-# Upland forest.
-r, c = jittered(sp, 0, H, 0, W)
+# Upland forest. A real forest is a patchwork: stands of different ages side by
+# side, taller and thicker in the draws than on the ridges and on shady slopes
+# than sunny ones, trees in clumps with openings between them, a young skirt
+# along the meadows' edges. (Its own random numbers.)
+f_rng = np.random.default_rng(53)
+fnoise = lambda sigma: smooth_noise(sigma, f_rng)
+zs = ndi.gaussian_filter(zh, 8)
+draw = np.clip((ndi.gaussian_filter(zh, 90) - ndi.gaussian_filter(zh, 25)) / 6.0, -1, 1)   # +1 in a draw, -1 on a ridge or spur
+gy_s, gx_s = np.gradient(zs)
+shady = np.clip(gy_s / 0.25, -1, 1)                               # rows run south: ground falling away to the north faces north
+site = np.clip(1.0 + 0.2 * draw + 0.14 * shady, 0.62, 1.35)       # how well trees grow here
+# Stand age, in patches a few hundred metres across, with ragged edges.
+age = 0.75 * fnoise(170) + 0.5 * fnoise(60)
+young_stand, old_stand = sstep(-age, 0.35, 0.95), sstep(age, 0.35, 0.95)
+stand_h = (24 + 15 * old_stand - 11 * young_stand) * site         # the height of the stand's main canopy, metres
+stems = 0.34 + 0.38 * young_stand - 0.19 * old_stand              # share of a 3.3 m grid that carries a tree
+stems *= np.clip(0.8 + 0.3 * draw + 0.2 * shady, 0.45, 1.3)
+# Openings: gaps of a few tens of metres (old burns, rock, wind-throw), and
+# thin, rocky ground on the steepest slopes.
+opening = sstep(fnoise(38) + 0.35 * fnoise(14), 1.2, 1.6)
+stems *= (1 - 0.94 * opening) * (1 - 0.6 * sstep(slope_deg, 28, 40))
+# Clumps and the spaces between them, at the scale of a few crowns.
+stems *= np.clip(1.0 + 0.75 * fnoise(9), 0.12, 2.2)
+# A young, dense skirt along the meadows' edges, where the forest is already leaning in.
+meadow_near = ndi.distance_transform_edt(upland)                  # metres from the nearest meadow, out in the forest
+skirt = np.clip(1 - meadow_near / 20.0, 0, 1)
+stems = np.clip(stems * (1 + 0.9 * skirt), 0.015, 0.95)
+stand_h = stand_h * (1 - 0.3 * skirt)
+r, c = jittered(3.3, 0, H, 0, W)
 ir, ic = r.astype(int), c.astype(int)
-stand = 0.5 + 0.5 * np.tanh(0.9 * smooth_noise(70))[ir, ic]
-ok = buildable[ir, ic] & upland[ir, ic] & (rng.uniform(size=r.size) < 0.62 + 0.38 * stand)
+ok = buildable[ir, ic] & upland[ir, ic] & (f_rng.uniform(size=r.size) < stems[ir, ic])
 r, c, ir, ic = r[ok], c[ok], ir[ok], ic[ok]
-h = (24 + 9 * smooth_noise(120)[ir, ic]) * rng.lognormal(0, 0.22, r.size)
-small = rng.uniform(size=r.size) < 0.22                             # understory and young trees
-h = np.clip(np.where(small, h * rng.uniform(0.25, 0.55, r.size), h), 3.5, 50)
-u = rng.uniform(size=r.size)
-young, mature = species(pine_stand[ir, ic] + rng.normal(0, 0.35, r.size) > 0.4, u)
+h = stand_h[ir, ic] * f_rng.lognormal(0, 0.2, r.size)
+# Under and between the main canopy: saplings and poles, most of all in old stands and openings' edges.
+small = f_rng.uniform(size=r.size) < 0.16 + 0.22 * old_stand[ir, ic]
+h = np.where(small, h * f_rng.uniform(0.18, 0.5, r.size), h)
+# A few old giants stand well above everything round them.
+giant = (f_rng.uniform(size=r.size) < 0.012 + 0.03 * old_stand[ir, ic]) & ~small
+h = np.clip(np.where(giant, h * f_rng.uniform(1.25, 1.5, r.size), h), 2.5, 51)
+u = f_rng.uniform(size=r.size)
+# Pine on sunny slopes, in young stands and at the meadow's edge; fir in the shade and in old stands.
+piney = pine_stand[ir, ic] - 0.5 * shady[ir, ic] + 0.45 * young_stand[ir, ic] - 0.35 * old_stand[ir, ic] + 0.5 * skirt[ir, ic]
+young, mature = species(piney + f_rng.normal(0, 0.35, r.size) > 0.4, u)
 kind = np.where(h < 10, young, mature)                              # an upland tree keeps one picture throughout
-kind = np.where(rng.uniform(size=r.size) < 0.04, np.where(h < 10, choose(short_snags, u), choose(tall_snags, u)), kind)  # standing dead
+dead = f_rng.uniform(size=r.size) < 0.03 + 0.05 * old_stand[ir, ic] + 0.04 * young_stand[ir, ic]   # standing dead: old stands and crowded young ones
+kind = np.where(dead, np.where(h < 10, choose(short_snags, u), choose(tall_snags, u)), kind)
+print(f"upland forest: {r.size} trees, {1e4 * r.size / max(1, int((upland & valid).sum())):.0f} per hectare on average; canopy height "
+      f"{np.percentile(h, 10):.0f} to {np.percentile(h, 90):.0f} m (10th to 90th percentile), tallest {h.max():.0f} m; "
+      f"{100 * opening[upland & valid].mean():.0f}% of the ground is in openings", flush=True)
 add(r, c, h, -10.0, NEVER, kind, kind, kind, False)
+
+# Viewpoints on the ground at the circled meadow (all in metres from the
+# window's north-west corner).
+vrow, vcol = int(oz) + r0, int(ox) + c0
+sun_e, sun_s = np.sin(np.radians(args.sun_az)), -np.cos(np.radians(args.sun_az))      # the way to the sun, east and south
+# In the channel: where the main channel has most to cut, close to the middle
+# of the meadow; a step off its centre line, looking downstream to watch the
+# headcut come.
+near_c = np.hypot(np.arange(H)[:, None] - vrow, np.arange(W)[None, :] - vcol) < 60
+score = np.where(chan & near_c & (floor_wet > 0.6), fill + 0.4 * incision, -1)
+cr, cc = np.unravel_index(np.argmax(score), score.shape)
+fe, fs = water["_healed"][1][cr, cc], water["_healed"][2][cr, cc]
+fn = max(np.hypot(fe, fs), 1e-6)
+fe, fs = fe / fn, fs / fn                                             # unit downstream
+side = 1.0 if (-fs * sun_e + fe * sun_s) > 0 else -1.0                # the bank on the sun's side
+pe, ps = -fs * side, fe * side                                        # across the channel, toward the sun
+channel_view = {"x": float(cc - c0 + 0.5 + 2.6 * pe), "z": float(cr - r0 + 0.5 + 2.6 * ps),
+                "lookX": float(cc - c0 + 30 * fe), "lookZ": float(cr - r0 + 30 * fs)}
+# At the meadow's edge above the trench-to-be: out along that same line until
+# the ground is no longer part of what will be cut away, and a little beyond;
+# looking back across the trench and up it, with the sun behind.
+d = 4.0
+while d < 70 and fill[int(cr + d * ps), int(cc + d * pe)] > 0.05:
+    d += 1.0
+d += 5.0
+rim_view = {"x": float(cc - c0 + d * pe), "z": float(cr - r0 + d * ps),
+            "lookX": float(cc - c0 - 26 * fe - 6 * pe), "lookZ": float(cr - r0 - 26 * fs - 6 * ps)}
+# Under the old trees: a dozen metres back from the meadow's edge, among
+# standing forest, looking out across the meadow toward the low sun, so the
+# trunks stand dark against it.
+best = None
+for bearing in np.radians(np.arange(0, 360, 4)):
+    be, bs = np.sin(bearing), -np.cos(bearing)
+    for dist in np.arange(30, 200, 2.0):
+        rr, qq = int(vrow + dist * bs), int(vcol + dist * be)
+        if not (0 <= rr < H and 0 <= qq < W) or not valid[rr, qq]:
+            break
+        if upland[rr, qq] and meadow_near[rr, qq] >= 12 and stems[rr, qq] > 0.25 and stand_h[rr, qq] > 20:
+            facing = -(be * sun_e + bs * sun_s)                       # 1 when looking back at the meadow is looking at the sun
+            value = facing - 0.004 * dist - 0.03 * slope_deg[rr, qq]
+            if best is None or value > best[0]:
+                best = (value, rr, qq)
+            break
+_, tr_, tc_ = best
+canopy_view = {"x": float(tc_ - c0 + 0.5), "z": float(tr_ - r0 + 0.5), "lookX": float(ox), "lookZ": float(oz)}
+views = {"channel": channel_view, "rim": rim_view, "canopy": canopy_view, "plan": {"x": float(ox), "z": float(oz), "height": 250.0}}
+print("viewpoints: " + "; ".join(f"{k} at {v['x']:.0f}, {v['z']:.0f}" for k, v in views.items()), flush=True)
+
+
+# The forest that takes the meadow is no more even than the one around it. Here
+# and there the conifers never take hold and a glade is left, a remnant of the
+# meadow gone dry; and the stand grows taller in some patches than in others.
+# (Its own random numbers; the trees that are left keep their places.)
+m_rng = np.random.default_rng(59)
+glade = sstep(smooth_noise(20, m_rng) + 0.4 * smooth_noise(8, m_rng), 1.0, 1.35) > 0.5
+grows = np.clip(1 + 0.2 * smooth_noise(40, m_rng), 0.72, 1.28)
+print(f"glades: {100 * glade[dries & valid].mean():.0f}% of the drying meadow stays open", flush=True)
 
 # Survivors of the meadow cohort: the trees of the mature forest.
 r, c = jittered(sp, 0, H, 0, W)
 ir, ic = r.astype(int), c.astype(int)
-ok = buildable[ir, ic] & dries[ir, ic] & (near_water[ir, ic] < -3) & (rng.uniform(size=r.size) < 0.8)
+ok = buildable[ir, ic] & dries[ir, ic] & (near_water[ir, ic] < -3) & (rng.uniform(size=r.size) < 0.8) & ~glade[ir, ic]
 r, c, ir, ic = r[ok], c[ok], ir[ok], ic[ok]
 u = rng.uniform(size=r.size)
 young, mature = species(rng.uniform(size=r.size) < 0.75, u)
-add(r, c, np.clip(30 * rng.lognormal(0, 0.12, r.size), 22, 37), birth_at(ir, ic, 0.18), NEVER, young, mature, choose(tall_snags, u), True)
+add(r, c, np.clip(30 * rng.lognormal(0, 0.12, r.size) * grows[ir, ic], 17, 40), birth_at(ir, ic, 0.18), NEVER, young, mature, choose(tall_snags, u), True)
 
 # The rest of the cohort: thicket stems that die as the stand closes. Placed one
 # by one only near the window.
@@ -717,7 +810,7 @@ m = 350
 r, c = jittered(ENC, max(0, r0 - m), min(H, r0 + n + m), max(0, c0 - m), min(W, c0 + n + m))
 ir, ic = r.astype(int), c.astype(int)
 thick = 0.5 + 0.5 * np.tanh(1.2 * smooth_noise(25))[ir, ic]
-ok = buildable[ir, ic] & dries[ir, ic] & (near_water[ir, ic] < -3) & (rng.uniform(size=r.size) < core_weight(r, c) * (0.4 + 0.6 * thick))
+ok = buildable[ir, ic] & dries[ir, ic] & (near_water[ir, ic] < -3) & (rng.uniform(size=r.size) < core_weight(r, c) * (0.4 + 0.6 * thick) * np.where(glade[ir, ic], 0.06, 1.0))
 r, c, ir, ic = r[ok], c[ok], ir[ok], ic[ok]
 u = rng.uniform(size=r.size)
 young, mature = species(rng.uniform(size=r.size) < 0.8, u)
@@ -729,7 +822,7 @@ add(r, c, hmax, birth, death, young, mature, snag, True)
 # Firs coming up under the closed canopy.
 r, c = jittered(sp, 0, H, 0, W)
 ir, ic = r.astype(int), c.astype(int)
-ok = buildable[ir, ic] & dries[ir, ic] & (near_water[ir, ic] < -3) & (rng.uniform(size=r.size) < 0.3)
+ok = buildable[ir, ic] & dries[ir, ic] & (near_water[ir, ic] < -3) & (rng.uniform(size=r.size) < 0.3) & ~glade[ir, ic]
 r, c = r[ok], c[ok]
 u = rng.uniform(size=r.size)
 add(r, c, rng.uniform(16, 22, r.size), rng.uniform(5.0, 5.9, r.size), NEVER, choose(fir_saps, u), choose(firs[:-1] if len(firs) > 1 else firs, u), choose(short_snags, u), True)
@@ -773,6 +866,11 @@ if "willow" in kinds:
 
 tr, tc, hmax, birth, death, t_young, t_mature, t_snag, meadow_tree, road_tree = (np.concatenate([g[k] for g in groups]) for k in
                                                                      ("r", "c", "hmax", "birth", "death", "young", "mature", "snag", "meadow", "road"))
+# Nothing stands where a viewpoint's camera does.
+clear = np.ones(tr.size, bool)
+for v in (channel_view, rim_view, canopy_view):
+    clear &= np.hypot(tr - (v["z"] + r0), tc - (v["x"] + c0)) > 2.2
+tr, tc, hmax, birth, death, t_young, t_mature, t_snag, meadow_tree, road_tree = (a[clear] for a in (tr, tc, hmax, birth, death, t_young, t_mature, t_snag, meadow_tree, road_tree))
 
 
 def stage_byte(s):
@@ -1057,6 +1155,7 @@ meta = {
     "channelDistMax": 120.0,
     "orbit": {"x": ox, "z": oz, "radius": ORBIT_R, "height": ORBIT_H, "start": ORBIT_START},   # metres from the core's north-west corner
     "landscape": landscape,
+    "views": views,
     "trees": {"count": int(tr.size), "bytes": trees.dtype.itemsize, "growSpan": GROW_SPAN, "growPow": GROW_POW, "switchHeight": SWITCH_H},
     "path": np.round(path, 2).tolist(),  # metres from the core's north-west corner
 }

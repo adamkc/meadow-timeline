@@ -11,7 +11,7 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.log(`pageerror: ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404')) console.log(`error: ${m.text().slice(0, 600)}`); });
-await page.goto(`${process.env.SHOT_URL ?? 'http://localhost:8137/'}?info=1&${query}`);
+await page.goto(`${process.env.SHOT_URL ?? 'http://localhost:8137/'}?info=1&start=0&${query}`);
 await page.waitForFunction(() => window.__meadow && window.__meadow.frames > 5, { timeout: 90000 });
 for (let t = 0; t < Number(seconds); t += 2) {
   await new Promise((r) => setTimeout(r, 2000));
