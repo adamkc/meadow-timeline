@@ -832,24 +832,85 @@ while d < 70 and fill[int(cr + d * ps), int(cc + d * pe)] > 0.05:
 d += 5.0
 rim_view = {"x": float(cc - c0 + d * pe), "z": float(cr - r0 + d * ps),
             "lookX": float(cc - c0 - 26 * fe - 6 * pe), "lookZ": float(cr - r0 - 26 * fs - 6 * ps)}
-# Under the old trees: a dozen metres back from the meadow's edge, among
-# standing forest, looking out across the meadow toward the low sun, so the
-# trunks stand dark against it.
+# Under the old trees: in old forest on higher ground off one end of the meadow,
+# looking along it. From the side a fresh gully is a thin line in the grass; its
+# floor shows only to an eye that looks down its length. So, of the spots in the
+# forest near the line of the meadow's long axis, this is the one that sees the
+# most of the gully's floor (past the ground, the plants on it and the trees in
+# the way), has old trees close around it and none in its face. The headcut is
+# then watched working its way up (or down) the meadow, not across the view.
+run = chan & (fill > 0.8) & (np.hypot(np.arange(H)[:, None] - vrow, np.arange(W)[None, :] - vcol) < 2 * ORBIT_R)
+lab, _ = ndi.label(ndi.binary_dilation(run, iterations=2))
+pr, pc = np.nonzero(run & (lab == lab[cr, cc]))                    # the channel through this meadow
+keep = np.argsort(pc + 1e-3 * pr)[::2]
+pr, pc = pr[keep], pc[keep]
+mid = np.array([pr.mean(), pc.mean()])
+axis = np.linalg.svd(np.c_[pr, pc] - mid)[2][0]                      # the meadow's long axis (rows, columns)
+slot = healed + fill * sstep(bank_dist, SLOT, SLOT + 1.6)            # the ground just after the headcut has passed everywhere
+cover = np.where(bank_dist < SLOT + 1.6, 0.0, np.where(upland, 1.0, 0.6))   # what stands on it, metres: ferns and brush under the trees, the meadow's sward, nothing in the fresh gully
+g_r, g_c, g_hmax, g_birth, g_death = (np.concatenate([g[k] for g in groups]) for k in ("r", "c", "hmax", "birth", "death"))
+handy = np.hypot(g_r - mid[0], g_c - mid[1]) < 3 * ORBIT_R
+g_r, g_c, g_hmax, g_birth, g_death = (a[handy] for a in (g_r, g_c, g_hmax, g_birth, g_death))
+g_tall = tree_height(g_hmax, g_birth, g_death, 2.5)                  # the trees as they stand while the trench is cutting and widening
+g_old = (tree_height(g_hmax, g_birth, g_death, 0.0) > 22) & (g_death > 2.5)
+g_base = filled[g_r.astype(int), g_c.astype(int)]
+VIEW_EYE = 1.7
+
+
+def floor_seen(er, ec):
+    """Which of the gully's floor points can be seen from standing height at a
+    cell: the line to each clears the ground and the plants on it, and no tree
+    stands in it (a trunk below its crown, the crown's width above)."""
+    e = filled[er, ec] + VIEW_EYE
+    d = np.hypot(pr - er, pc - ec)
+    k = np.arange(1, int(d.max()) + 1)[None, :]                                       # a sample each metre of the way to each point
+    t = k / np.maximum(d[:, None], 1e-6)
+    on = (t < 1 - 1.5 / np.maximum(d[:, None], 1.6)) & (k > 2)
+    tt = np.minimum(t, 1)
+    rows, cols = (er + 0.5 + (pr[:, None] - er) * tt).astype(int), (ec + 0.5 + (pc[:, None] - ec) * tt).astype(int)
+    aim = slot[pr, pc] + 0.3
+    ok = np.all(~on | (e + (aim[:, None] - e) * tt > slot[rows, cols] + cover[rows, cols]), axis=1) & (d > 8)
+    near_t = (np.hypot(g_r - er - 0.5, g_c - ec - 0.5) < d.max()) & (g_tall > 3)
+    tr_, tc_, th, tb = g_r[near_t] - er - 0.5, g_c[near_t] - ec - 0.5, g_tall[near_t], g_base[near_t]
+    for i in np.nonzero(ok)[0]:
+        ur, uc = (pr[i] - er) / d[i], (pc[i] - ec) / d[i]
+        along, side = tr_ * ur + tc_ * uc, np.abs(tr_ * uc - tc_ * ur)
+        ray = e + (aim[i] - e) * np.clip(along / d[i], 0, 1)
+        width = np.where(ray < tb + 0.4 * th, 0.5, np.where(ray < tb + th, 0.13 * th * np.clip((tb + th - ray) / (0.6 * th), 0.15, 1), -1.0))
+        ok[i] = not np.any((along > 1) & (along < d[i]) & (side < width))
+    return ok
+
+
 best = None
-for bearing in np.radians(np.arange(0, 360, 4)):
-    be, bs = np.sin(bearing), -np.cos(bearing)
-    for dist in np.arange(30, 200, 2.0):
-        rr, qq = int(vrow + dist * bs), int(vcol + dist * be)
-        if not (0 <= rr < H and 0 <= qq < W) or not valid[rr, qq]:
-            break
-        if upland[rr, qq] and meadow_near[rr, qq] >= 12 and stems[rr, qq] > 0.25 and stand_h[rr, qq] > 20:
-            facing = -(be * sun_e + bs * sun_s)                       # 1 when looking back at the meadow is looking at the sun
-            value = facing - 0.004 * dist - 0.03 * slope_deg[rr, qq]
-            if best is None or value > best[0]:
-                best = (value, rr, qq)
-            break
-_, tr_, tc_ = best
-canopy_view = {"x": float(tc_ - c0 + 0.5), "z": float(tr_ - r0 + 0.5), "lookX": float(ox), "lookZ": float(oz)}
+spots = upland & valid & (meadow_near >= 6) & (meadow_near <= 60) & (slope_deg < 22) & (road_soft < 0.1) & (fill < 0.05)
+spots[1::2, :] = False
+spots[:, 1::2] = False
+for er, ec in zip(*np.nonzero(spots)):
+    rel = np.array([er, ec]) - mid
+    if np.hypot(*rel) > 2.5 * ORBIT_R or abs(rel @ np.array([-axis[1], axis[0]])) > np.tan(np.radians(16)) * abs(rel @ axis):
+        continue                                                      # not off an end of the meadow
+    seen = floor_seen(er, ec)
+    if seen.sum() < 3:
+        continue
+    off_r, off_c = g_r - er - 0.5, g_c - ec - 0.5
+    dist = np.hypot(off_r, off_c)
+    old = int((g_old & (dist > 2.2) & (dist < 12)).sum())
+    swing = np.angle(np.mean(np.exp(1j * np.arctan2(pc[seen] - ec, pr[seen] - er))))                  # the middle way of the floor it sees
+    aside = np.abs(np.angle(np.exp(1j * (np.arctan2(off_c, off_r) - swing))))
+    in_face = int(((dist > 2.2) & (dist < 7) & (aside < np.radians(30)) & (g_tall > 1.5)).sum())      # trees right in front of the camera
+    value = seen.sum() * (0.5 + 0.5 * min(old, 6) / 6) * 0.5 ** in_face
+    if best is None or value > best[0]:
+        best = (value, er, ec, seen, old, swing)
+_, tr_, tc_, seen, old, swing = best
+# Looking that middle way, and down enough that the nearest of the floor stands
+# clear of the caption along the bottom of the page.
+d = np.hypot(pr[seen] - tr_, pc[seen] - tc_)
+drop = np.degrees(np.arctan2(filled[tr_, tc_] + VIEW_EYE - slot[pr[seen], pc[seen]], d))
+pitch = float(np.clip(drop.max() - 11.0, 3.0, 14.0))
+canopy_view = {"x": float(tc_ - c0 + 0.5), "z": float(tr_ - r0 + 0.5), "lookX": float(tc_ - c0 + 0.5 + 90 * np.sin(swing)),
+               "lookZ": float(tr_ - r0 + 0.5 + 90 * np.cos(swing)), "pitch": round(pitch, 1)}
+print(f"the view from under the old trees: {int(seen.sum())} of {pr.size} points along the gully's floor in sight, {old} old trees within 12 m, "
+      f"{meadow_near[tr_, tc_]:.0f} m from the meadow and {filled[tr_, tc_] - filled[pr, pc].mean():.1f} m above it, looking {pitch:.0f} degrees down", flush=True)
 views = {"channel": channel_view, "rim": rim_view, "canopy": canopy_view, "plan": {"x": float(ox), "z": float(oz), "height": 250.0}}
 print("viewpoints: " + "; ".join(f"{k} at {v['x']:.0f}, {v['z']:.0f}" for k, v in views.items()), flush=True)
 

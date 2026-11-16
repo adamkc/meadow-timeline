@@ -501,6 +501,8 @@ function valleyPose(u, position, aim) {
 const EYE = 1.7;
 function standing(spot, eye = EYE, lookHeight = 1.0) {
   const x = spot.x + coreOrigin.x, z = spot.z + coreOrigin.y, lx = spot.lookX + coreOrigin.x, lz = spot.lookZ + coreOrigin.y;
+  // A spot can say how far below level it looks (degrees). Its aim then holds still while the ground out there is cut away.
+  const drop = spot.pitch === undefined ? null : Math.hypot(lx - x, lz - z) * Math.tan(spot.pitch * Math.PI / 180);
   let y = null;
   return (u, position, aim, dt = 0) => {
     // The ground can drop away under this spot (the channel cutting down); the eye follows it down, not at once.
@@ -508,7 +510,7 @@ function standing(spot, eye = EYE, lookHeight = 1.0) {
     y = y === null || dt === 0 ? target : y + (target - y) * (1 - Math.exp(-dt * 2.5));
     position.set(x, y, z);
     const glance = 0.16 * Math.sin(shared.uTime.value * 0.11), c = Math.cos(glance), s = Math.sin(glance);
-    aim.set(x + (lx - x) * c - (lz - z) * s, groundAt(lx, lz) + lookHeight, z + (lx - x) * s + (lz - z) * c);
+    aim.set(x + (lx - x) * c - (lz - z) * s, drop === null ? groundAt(lx, lz) + lookHeight : y - drop, z + (lx - x) * s + (lz - z) * c);
   };
 }
 // A fixed, map-like view of the meadow from the south, north at the top. Not

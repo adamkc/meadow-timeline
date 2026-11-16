@@ -37,7 +37,7 @@ WebGL 2; about 20 MB to load).
 
 ![All seven stages from the circling view](media/stages.jpg)
 
-![From under the old trees at stages 1, 5 and 7; from the meadow's edge; from in the channel before and after it cuts down](media/viewpoints.jpg)
+![From under the old trees at stages 1, 2 and 7; from the meadow's edge; from in the channel before and after it cuts down](media/viewpoints.jpg)
 
 ![The landscape view: every meadow in the window, and the streams that join them](media/landscape.jpg)
 
@@ -96,13 +96,18 @@ The six viewpoints:
 |---|---|---|
 | 1 | Circling the meadow | the whole sequence in one place, from above the treetops |
 | 2 | The whole valley | every meadow in the window, and the streams that join them |
-| 3 | Under the old trees | from the forest at the meadow's edge, looking out: the open meadow fills with trees |
+| 3 | Under the old trees | from old forest on a rise at the foot of the meadow, looking up its length: the gully opens below and its headcut works away up the valley, then the open meadow fills with trees |
 | 4 | At the meadow's edge | from the bank the trench will have, looking across it |
 | 5 | In the channel | at the water, as the headcut comes and the bed drops away |
 | 6 | Like a map | fixed, from the south, north at the top |
 
 Between the views in the air the camera flies; to and from the ground it cuts.
 A visit starts at 3, under the old trees, where the change is most striking.
+That spot is chosen by `prep_terrain.py`, not by hand: of the places in the
+forest off either end of the meadow, the one that sees the most of the gully's
+floor past the ground, the plants and the trees, with old trees around it. A
+fresh gully seen from the side is a thin line; its floor shows only to an eye
+looking along it.
 
 URL options: `&stage=0..6` (fractions allowed), `?u=0.3` (position around the
 circle, paused, for stills), `&orbit=x,z` (circle another spot, metres from the
